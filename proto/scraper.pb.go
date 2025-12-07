@@ -461,6 +461,146 @@ func (x *HealthResponse) GetVersion() string {
 	return ""
 }
 
+type GetDownloadedFilesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDownloadedFilesRequest) Reset() {
+	*x = GetDownloadedFilesRequest{}
+	mi := &file_proto_scraper_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDownloadedFilesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDownloadedFilesRequest) ProtoMessage() {}
+
+func (x *GetDownloadedFilesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scraper_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDownloadedFilesRequest.ProtoReflect.Descriptor instead.
+func (*GetDownloadedFilesRequest) Descriptor() ([]byte, []int) {
+	return file_proto_scraper_proto_rawDescGZIP(), []int{8}
+}
+
+type DownloadedFile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
+	Content       []byte                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DownloadedFile) Reset() {
+	*x = DownloadedFile{}
+	mi := &file_proto_scraper_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DownloadedFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DownloadedFile) ProtoMessage() {}
+
+func (x *DownloadedFile) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scraper_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DownloadedFile.ProtoReflect.Descriptor instead.
+func (*DownloadedFile) Descriptor() ([]byte, []int) {
+	return file_proto_scraper_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *DownloadedFile) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *DownloadedFile) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+type GetDownloadedFilesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Files         []*DownloadedFile      `protobuf:"bytes,1,rep,name=files,proto3" json:"files,omitempty"`
+	SessionFolder string                 `protobuf:"bytes,2,opt,name=session_folder,json=sessionFolder,proto3" json:"session_folder,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetDownloadedFilesResponse) Reset() {
+	*x = GetDownloadedFilesResponse{}
+	mi := &file_proto_scraper_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetDownloadedFilesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetDownloadedFilesResponse) ProtoMessage() {}
+
+func (x *GetDownloadedFilesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scraper_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetDownloadedFilesResponse.ProtoReflect.Descriptor instead.
+func (*GetDownloadedFilesResponse) Descriptor() ([]byte, []int) {
+	return file_proto_scraper_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetDownloadedFilesResponse) GetFiles() []*DownloadedFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+func (x *GetDownloadedFilesResponse) GetSessionFolder() string {
+	if x != nil {
+		return x.SessionFolder
+	}
+	return ""
+}
+
 var File_proto_scraper_proto protoreflect.FileDescriptor
 
 const file_proto_scraper_proto_rawDesc = "" +
@@ -495,12 +635,20 @@ const file_proto_scraper_proto_rawDesc = "" +
 	"\rHealthRequest\"D\n" +
 	"\x0eHealthResponse\x12\x18\n" +
 	"\ahealthy\x18\x01 \x01(\bR\ahealthy\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion2\xd5\x01\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\"\x1b\n" +
+	"\x19GetDownloadedFilesRequest\"F\n" +
+	"\x0eDownloadedFile\x12\x1a\n" +
+	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\fR\acontent\"r\n" +
+	"\x1aGetDownloadedFilesResponse\x12-\n" +
+	"\x05files\x18\x01 \x03(\v2\x17.scraper.DownloadedFileR\x05files\x12%\n" +
+	"\x0esession_folder\x18\x02 \x01(\tR\rsessionFolder2\xb4\x02\n" +
 	"\n" +
 	"ETCScraper\x129\n" +
 	"\x06Scrape\x12\x16.scraper.ScrapeRequest\x1a\x17.scraper.ScrapeResponse\x12Q\n" +
 	"\x0eScrapeMultiple\x12\x1e.scraper.ScrapeMultipleRequest\x1a\x1f.scraper.ScrapeMultipleResponse\x129\n" +
-	"\x06Health\x12\x16.scraper.HealthRequest\x1a\x17.scraper.HealthResponseB\x1cZ\x1agithub.com/scrape-vm/protob\x06proto3"
+	"\x06Health\x12\x16.scraper.HealthRequest\x1a\x17.scraper.HealthResponse\x12]\n" +
+	"\x12GetDownloadedFiles\x12\".scraper.GetDownloadedFilesRequest\x1a#.scraper.GetDownloadedFilesResponseB\x1cZ\x1agithub.com/scrape-vm/protob\x06proto3"
 
 var (
 	file_proto_scraper_proto_rawDescOnce sync.Once
@@ -514,31 +662,37 @@ func file_proto_scraper_proto_rawDescGZIP() []byte {
 	return file_proto_scraper_proto_rawDescData
 }
 
-var file_proto_scraper_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_scraper_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_proto_scraper_proto_goTypes = []any{
-	(*ScrapeRequest)(nil),          // 0: scraper.ScrapeRequest
-	(*ScrapeResponse)(nil),         // 1: scraper.ScrapeResponse
-	(*ScrapeMultipleRequest)(nil),  // 2: scraper.ScrapeMultipleRequest
-	(*Account)(nil),                // 3: scraper.Account
-	(*ScrapeMultipleResponse)(nil), // 4: scraper.ScrapeMultipleResponse
-	(*ScrapeResult)(nil),           // 5: scraper.ScrapeResult
-	(*HealthRequest)(nil),          // 6: scraper.HealthRequest
-	(*HealthResponse)(nil),         // 7: scraper.HealthResponse
+	(*ScrapeRequest)(nil),              // 0: scraper.ScrapeRequest
+	(*ScrapeResponse)(nil),             // 1: scraper.ScrapeResponse
+	(*ScrapeMultipleRequest)(nil),      // 2: scraper.ScrapeMultipleRequest
+	(*Account)(nil),                    // 3: scraper.Account
+	(*ScrapeMultipleResponse)(nil),     // 4: scraper.ScrapeMultipleResponse
+	(*ScrapeResult)(nil),               // 5: scraper.ScrapeResult
+	(*HealthRequest)(nil),              // 6: scraper.HealthRequest
+	(*HealthResponse)(nil),             // 7: scraper.HealthResponse
+	(*GetDownloadedFilesRequest)(nil),  // 8: scraper.GetDownloadedFilesRequest
+	(*DownloadedFile)(nil),             // 9: scraper.DownloadedFile
+	(*GetDownloadedFilesResponse)(nil), // 10: scraper.GetDownloadedFilesResponse
 }
 var file_proto_scraper_proto_depIdxs = []int32{
-	3, // 0: scraper.ScrapeMultipleRequest.accounts:type_name -> scraper.Account
-	5, // 1: scraper.ScrapeMultipleResponse.results:type_name -> scraper.ScrapeResult
-	0, // 2: scraper.ETCScraper.Scrape:input_type -> scraper.ScrapeRequest
-	2, // 3: scraper.ETCScraper.ScrapeMultiple:input_type -> scraper.ScrapeMultipleRequest
-	6, // 4: scraper.ETCScraper.Health:input_type -> scraper.HealthRequest
-	1, // 5: scraper.ETCScraper.Scrape:output_type -> scraper.ScrapeResponse
-	4, // 6: scraper.ETCScraper.ScrapeMultiple:output_type -> scraper.ScrapeMultipleResponse
-	7, // 7: scraper.ETCScraper.Health:output_type -> scraper.HealthResponse
-	5, // [5:8] is the sub-list for method output_type
-	2, // [2:5] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3,  // 0: scraper.ScrapeMultipleRequest.accounts:type_name -> scraper.Account
+	5,  // 1: scraper.ScrapeMultipleResponse.results:type_name -> scraper.ScrapeResult
+	9,  // 2: scraper.GetDownloadedFilesResponse.files:type_name -> scraper.DownloadedFile
+	0,  // 3: scraper.ETCScraper.Scrape:input_type -> scraper.ScrapeRequest
+	2,  // 4: scraper.ETCScraper.ScrapeMultiple:input_type -> scraper.ScrapeMultipleRequest
+	6,  // 5: scraper.ETCScraper.Health:input_type -> scraper.HealthRequest
+	8,  // 6: scraper.ETCScraper.GetDownloadedFiles:input_type -> scraper.GetDownloadedFilesRequest
+	1,  // 7: scraper.ETCScraper.Scrape:output_type -> scraper.ScrapeResponse
+	4,  // 8: scraper.ETCScraper.ScrapeMultiple:output_type -> scraper.ScrapeMultipleResponse
+	7,  // 9: scraper.ETCScraper.Health:output_type -> scraper.HealthResponse
+	10, // 10: scraper.ETCScraper.GetDownloadedFiles:output_type -> scraper.GetDownloadedFilesResponse
+	7,  // [7:11] is the sub-list for method output_type
+	3,  // [3:7] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_proto_scraper_proto_init() }
@@ -552,7 +706,7 @@ func file_proto_scraper_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_scraper_proto_rawDesc), len(file_proto_scraper_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

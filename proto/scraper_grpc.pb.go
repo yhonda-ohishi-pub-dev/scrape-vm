@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ETCScraper_Scrape_FullMethodName         = "/scraper.ETCScraper/Scrape"
-	ETCScraper_ScrapeMultiple_FullMethodName = "/scraper.ETCScraper/ScrapeMultiple"
-	ETCScraper_Health_FullMethodName         = "/scraper.ETCScraper/Health"
+	ETCScraper_Scrape_FullMethodName             = "/scraper.ETCScraper/Scrape"
+	ETCScraper_ScrapeMultiple_FullMethodName     = "/scraper.ETCScraper/ScrapeMultiple"
+	ETCScraper_Health_FullMethodName             = "/scraper.ETCScraper/Health"
+	ETCScraper_GetDownloadedFiles_FullMethodName = "/scraper.ETCScraper/GetDownloadedFiles"
 )
 
 // ETCScraperClient is the client API for ETCScraper service.
@@ -34,6 +35,8 @@ type ETCScraperClient interface {
 	ScrapeMultiple(ctx context.Context, in *ScrapeMultipleRequest, opts ...grpc.CallOption) (*ScrapeMultipleResponse, error)
 	// ヘルスチェック
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
+	// ダウンロード済みファイルの取得
+	GetDownloadedFiles(ctx context.Context, in *GetDownloadedFilesRequest, opts ...grpc.CallOption) (*GetDownloadedFilesResponse, error)
 }
 
 type eTCScraperClient struct {
@@ -74,6 +77,16 @@ func (c *eTCScraperClient) Health(ctx context.Context, in *HealthRequest, opts .
 	return out, nil
 }
 
+func (c *eTCScraperClient) GetDownloadedFiles(ctx context.Context, in *GetDownloadedFilesRequest, opts ...grpc.CallOption) (*GetDownloadedFilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDownloadedFilesResponse)
+	err := c.cc.Invoke(ctx, ETCScraper_GetDownloadedFiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ETCScraperServer is the server API for ETCScraper service.
 // All implementations must embed UnimplementedETCScraperServer
 // for forward compatibility.
@@ -84,6 +97,8 @@ type ETCScraperServer interface {
 	ScrapeMultiple(context.Context, *ScrapeMultipleRequest) (*ScrapeMultipleResponse, error)
 	// ヘルスチェック
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
+	// ダウンロード済みファイルの取得
+	GetDownloadedFiles(context.Context, *GetDownloadedFilesRequest) (*GetDownloadedFilesResponse, error)
 	mustEmbedUnimplementedETCScraperServer()
 }
 
@@ -102,6 +117,9 @@ func (UnimplementedETCScraperServer) ScrapeMultiple(context.Context, *ScrapeMult
 }
 func (UnimplementedETCScraperServer) Health(context.Context, *HealthRequest) (*HealthResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Health not implemented")
+}
+func (UnimplementedETCScraperServer) GetDownloadedFiles(context.Context, *GetDownloadedFilesRequest) (*GetDownloadedFilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDownloadedFiles not implemented")
 }
 func (UnimplementedETCScraperServer) mustEmbedUnimplementedETCScraperServer() {}
 func (UnimplementedETCScraperServer) testEmbeddedByValue()                    {}
@@ -178,6 +196,24 @@ func _ETCScraper_Health_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ETCScraper_GetDownloadedFiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDownloadedFilesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ETCScraperServer).GetDownloadedFiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ETCScraper_GetDownloadedFiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ETCScraperServer).GetDownloadedFiles(ctx, req.(*GetDownloadedFilesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ETCScraper_ServiceDesc is the grpc.ServiceDesc for ETCScraper service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -196,6 +232,10 @@ var ETCScraper_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Health",
 			Handler:    _ETCScraper_Health_Handler,
+		},
+		{
+			MethodName: "GetDownloadedFiles",
+			Handler:    _ETCScraper_GetDownloadedFiles_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

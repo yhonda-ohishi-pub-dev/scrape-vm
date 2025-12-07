@@ -112,6 +112,64 @@ func (s *GRPCServer) Health(ctx context.Context, req *pb.HealthRequest) (*pb.Hea
 	}, nil
 }
 
+// GetDownloadedFiles implements the GetDownloadedFiles RPC
+func (s *GRPCServer) GetDownloadedFiles(ctx context.Context, req *pb.GetDownloadedFilesRequest) (*pb.GetDownloadedFilesResponse, error) {
+	s.logger.Println("GetDownloadedFiles requested")
+
+	// ダウンロードディレクトリ内の最新セッションフォルダを探す
+	entries, err := os.ReadDir(s.downloadPath)
+	if err != nil {
+		return &pb.GetDownloadedFilesResponse{}, nil
+	}
+
+	// 最新のフォルダを探す（YYYYMMDD_HHMMSS形式でソート）
+	var latestFolder string
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].IsDir() {
+			latestFolder = entries[i].Name()
+			break
+		}
+	}
+
+	if latestFolder == "" {
+		s.logger.Println("No session folder found")
+		return &pb.GetDownloadedFilesResponse{}, nil
+	}
+
+	sessionPath := filepath.Join(s.downloadPath, latestFolder)
+	s.logger.Printf("Reading files from: %s", sessionPath)
+
+	// セッションフォルダ内のCSVファイルを読み込む
+	files, err := os.ReadDir(sessionPath)
+	if err != nil {
+		return &pb.GetDownloadedFilesResponse{SessionFolder: latestFolder}, nil
+	}
+
+	var downloadedFiles []*pb.DownloadedFile
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		filePath := filepath.Join(sessionPath, f.Name())
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			s.logger.Printf("Warning: could not read file %s: %v", f.Name(), err)
+			continue
+		}
+		downloadedFiles = append(downloadedFiles, &pb.DownloadedFile{
+			Filename: f.Name(),
+			Content:  content,
+		})
+		s.logger.Printf("Added file: %s (%d bytes)", f.Name(), len(content))
+	}
+
+	s.logger.Printf("Returning %d files from session %s", len(downloadedFiles), latestFolder)
+	return &pb.GetDownloadedFilesResponse{
+		Files:         downloadedFiles,
+		SessionFolder: latestFolder,
+	}, nil
+}
+
 // Scrape implements the Scrape RPC
 func (s *GRPCServer) Scrape(ctx context.Context, req *pb.ScrapeRequest) (*pb.ScrapeResponse, error) {
 	s.logger.Printf("Scrape requested for user: %s", req.UserId)
@@ -151,9 +209,9 @@ func (s *GRPCServer) Scrape(ctx context.Context, req *pb.ScrapeRequest) (*pb.Scr
 	}, nil
 }
 
-// ScrapeMultiple implements the ScrapeMultiple RPC
+// ScrapeMultiple implements the ScrapeMultiple RPC (非同期版)
 func (s *GRPCServer) ScrapeMultiple(ctx context.Context, req *pb.ScrapeMultipleRequest) (*pb.ScrapeMultipleResponse, error) {
-	s.logger.Printf("ScrapeMultiple requested for %d accounts", len(req.Accounts))
+	s.logger.Printf("ScrapeMultiple requested for %d accounts (async)", len(req.Accounts))
 
 	sessionFolder := filepath.Join(s.downloadPath, time.Now().Format("20060102_150405"))
 	if err := os.MkdirAll(sessionFolder, 0755); err != nil {
@@ -164,49 +222,38 @@ func (s *GRPCServer) ScrapeMultiple(ctx context.Context, req *pb.ScrapeMultipleR
 		}, nil
 	}
 
-	var results []*pb.ScrapeResult
-	successCount := int32(0)
+	// バックグラウンドでスクレイピング実行
+	go func() {
+		for i, acc := range req.Accounts {
+			s.logger.Printf("Processing account %d/%d: %s", i+1, len(req.Accounts), acc.UserId)
 
-	for i, acc := range req.Accounts {
-		s.logger.Printf("Processing account %d/%d: %s", i+1, len(req.Accounts), acc.UserId)
+			config := &ScraperConfig{
+				UserID:       acc.UserId,
+				Password:     acc.Password,
+				DownloadPath: sessionFolder,
+				Headless:     s.headless,
+				Timeout:      60 * time.Second,
+			}
 
-		config := &ScraperConfig{
-			UserID:       acc.UserId,
-			Password:     acc.Password,
-			DownloadPath: sessionFolder,
-			Headless:     s.headless,
-			Timeout:      60 * time.Second,
+			csvPath, err := processAccountWithResult(config, s.logger)
+			if err != nil {
+				s.logger.Printf("ERROR: Account %s failed: %v", acc.UserId, err)
+				continue
+			}
+			s.logger.Printf("SUCCESS: Account %s -> %s", acc.UserId, csvPath)
+
+			// アカウント間で待機
+			if i < len(req.Accounts)-1 {
+				time.Sleep(2 * time.Second)
+			}
 		}
+		s.logger.Printf("ScrapeMultiple completed for session: %s", sessionFolder)
+	}()
 
-		csvPath, err := processAccountWithResult(config, s.logger)
-		if err != nil {
-			results = append(results, &pb.ScrapeResult{
-				UserId:  acc.UserId,
-				Success: false,
-				Message: err.Error(),
-			})
-			continue
-		}
-
-		csvContent, _ := os.ReadFile(csvPath)
-		results = append(results, &pb.ScrapeResult{
-			UserId:     acc.UserId,
-			Success:    true,
-			Message:    "Success",
-			CsvPath:    csvPath,
-			CsvContent: string(csvContent),
-		})
-		successCount++
-
-		// アカウント間で待機
-		if i < len(req.Accounts)-1 {
-			time.Sleep(2 * time.Second)
-		}
-	}
-
+	// 即座にレスポンスを返す
 	return &pb.ScrapeMultipleResponse{
-		Results:      results,
-		SuccessCount: successCount,
+		Results:      nil,
+		SuccessCount: 0,
 		TotalCount:   int32(len(req.Accounts)),
 	}, nil
 }

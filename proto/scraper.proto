@@ -13,6 +13,9 @@ service ETCScraper {
 
   // ヘルスチェック
   rpc Health(HealthRequest) returns (HealthResponse);
+
+  // ダウンロード済みファイルの取得
+  rpc GetDownloadedFiles(GetDownloadedFilesRequest) returns (GetDownloadedFilesResponse);
 }
 
 message ScrapeRequest {
@@ -55,4 +58,16 @@ message HealthRequest {}
 message HealthResponse {
   bool healthy = 1;
   string version = 2;
+}
+
+message GetDownloadedFilesRequest {}
+
+message DownloadedFile {
+  string filename = 1;
+  bytes content = 2;
+}
+
+message GetDownloadedFilesResponse {
+  repeated DownloadedFile files = 1;
+  string session_folder = 2;
 }
