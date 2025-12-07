@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package scraper;
+
+option go_package = "github.com/scrape-vm/proto";
+
+service ETCScraper {
+  // 単一アカウントのスクレイピング
+  rpc Scrape(ScrapeRequest) returns (ScrapeResponse);
+
+  // 複数アカウントのスクレイピング
+  rpc ScrapeMultiple(ScrapeMultipleRequest) returns (ScrapeMultipleResponse);
+
+  // ヘルスチェック
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message ScrapeRequest {
+  string user_id = 1;
+  string password = 2;
+}
+
+message ScrapeResponse {
+  bool success = 1;
+  string message = 2;
+  string csv_path = 3;
+  string csv_content = 4;  // CSVの内容（オプション）
+}
+
+message ScrapeMultipleRequest {
+  repeated Account accounts = 1;
+}
+
+message Account {
+  string user_id = 1;
+  string password = 2;
+}
+
+message ScrapeMultipleResponse {
+  repeated ScrapeResult results = 1;
+  int32 success_count = 2;
+  int32 total_count = 3;
+}
+
+message ScrapeResult {
+  string user_id = 1;
+  bool success = 2;
+  string message = 3;
+  string csv_path = 4;
+  string csv_content = 5;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool healthy = 1;
+  string version = 2;
+}

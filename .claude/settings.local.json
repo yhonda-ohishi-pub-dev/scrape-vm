@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod tidy:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File deploy.ps1)",
+      "Bash(go build:*)",
+      "Bash(./etc-scraper.exe:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
