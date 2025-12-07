@@ -29,10 +29,17 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 
 ## アーキテクチャ
 
-- **main.go** - 全ロジックを含む単一ファイル構成
-  - `ETCScraper` - chromedpを使用したスクレイピングロジック
-  - `GRPCServer` - gRPCサービス実装
-  - CLIモード用のアカウントパース処理
+- **main.go** - エントリーポイント
+  - CLIフラグ解析、起動モード判定
+  - アカウントパース処理
+
+- **scrapers/** - スクレイパー実装
+  - `base.go` - 共通`Scraper`インターフェースと型定義
+  - `etc.go` - ETCスクレイパー（chromedp使用）
+  - 新しいスクレイパー追加時はここにファイルを追加
+
+- **server/** - サーバー実装
+  - `grpc.go` - gRPCサービス実装
 
 - **proto/** - gRPC定義とコード生成
   - `scraper.proto` - サービス定義

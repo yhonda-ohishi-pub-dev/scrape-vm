@@ -111,7 +111,12 @@ make clean     # バイナリ削除
 
 ```
 scrape-vm/
-├── main.go              # メインアプリケーション
+├── main.go              # エントリーポイント
+├── scrapers/
+│   ├── base.go          # 共通インターフェース・型定義
+│   └── etc.go           # ETCスクレイパー実装
+├── server/
+│   └── grpc.go          # gRPCサーバー実装
 ├── proto/
 │   ├── scraper.proto    # gRPC定義
 │   ├── scraper.pb.go    # 生成コード
@@ -130,6 +135,7 @@ scrape-vm/
 
 ## コミット履歴
 
+- `c536b28` - ソースコード分割: scrapers/とserver/パッケージに分離
 - `f6a29f5` - GetDownloadedFiles RPC追加、ScrapeMultiple非同期化、Makefile改善
 - `34f3434` - systemdサービス対応を追加
 - `ed01206` - README.mdとCLAUDE.mdを追加
