@@ -4,6 +4,8 @@
 VM_NAME := instance-20251207-115015
 VM_ZONE := asia-northeast1-b
 REMOTE_PATH := /opt/etc-scraper/etc-scraper
+SERVICE_FILE := etc-scraper.service
+SERVICE_NAME := etc-scraper
 
 # ビルド設定
 BINARY_LINUX := etc-scraper-linux
@@ -33,13 +35,24 @@ build: build-linux build-windows
 upload: build-linux
 	@echo "=== Uploading to VM ==="
 	gcloud compute scp $(BINARY_LINUX) $(VM_NAME):/tmp/$(BINARY_LINUX) --zone=$(VM_ZONE)
+	gcloud compute scp $(SERVICE_FILE) $(VM_NAME):/tmp/$(SERVICE_FILE) --zone=$(VM_ZONE)
 	@echo "Upload complete!"
 
-# VMにデプロイ（アップロード＋配置）
+# VMにデプロイ（アップロード＋配置＋サービス登録）
 deploy: upload
 	@echo "=== Deploying on VM ==="
-	gcloud compute ssh $(VM_NAME) --zone=$(VM_ZONE) -- "sudo mv /tmp/$(BINARY_LINUX) $(REMOTE_PATH) && sudo chmod +x $(REMOTE_PATH) && $(REMOTE_PATH) --help"
+	gcloud compute ssh $(VM_NAME) --zone=$(VM_ZONE) -- "\
+		sudo mkdir -p /opt/etc-scraper/downloads && \
+		sudo mv /tmp/$(BINARY_LINUX) $(REMOTE_PATH) && \
+		sudo chmod +x $(REMOTE_PATH) && \
+		sudo mv /tmp/$(SERVICE_FILE) /etc/systemd/system/$(SERVICE_FILE) && \
+		sudo systemctl daemon-reload && \
+		sudo systemctl enable $(SERVICE_NAME) && \
+		sudo systemctl restart $(SERVICE_NAME) && \
+		sleep 2 && \
+		sudo systemctl status $(SERVICE_NAME)"
 	@echo "=== Deploy Complete ==="
+	@echo "Service '$(SERVICE_NAME)' is now running on port 50051"
 
 # VMにSSH接続
 ssh:

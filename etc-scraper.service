@@ -1,0 +1,15 @@
+[Unit]
+Description=ETC Meisai Scraper gRPC Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/etc-scraper
+ExecStart=/opt/etc-scraper/etc-scraper -grpc -port=50051 -headless=true -download=/opt/etc-scraper/downloads
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=multi-user.target

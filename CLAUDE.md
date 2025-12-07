@@ -56,6 +56,7 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - VM名: `instance-20251207-115015`
 - ゾーン: `asia-northeast1-b`
 - リモートパス: `/opt/etc-scraper/etc-scraper`
+- systemdサービス: `etc-scraper.service`（ポート50051）
 
 ## 注意事項
 
