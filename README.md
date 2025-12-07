@@ -70,8 +70,18 @@ service ETCScraper {
   rpc Scrape(ScrapeRequest) returns (ScrapeResponse);
   rpc ScrapeMultiple(ScrapeMultipleRequest) returns (ScrapeMultipleResponse);
   rpc Health(HealthRequest) returns (HealthResponse);
+  rpc GetDownloadedFiles(GetDownloadedFilesRequest) returns (GetDownloadedFilesResponse);
 }
 ```
+
+### RPC説明
+
+| RPC | 説明 |
+|-----|------|
+| `Scrape` | 単一アカウントのスクレイピング |
+| `ScrapeMultiple` | 複数アカウントの非同期スクレイピング（即座にレスポンス返却） |
+| `Health` | ヘルスチェック |
+| `GetDownloadedFiles` | 最新セッションのダウンロード済みCSVファイルを取得 |
 
 詳細は [proto/scraper.proto](proto/scraper.proto) を参照。
 
@@ -109,13 +119,18 @@ scrape-vm/
 ├── Makefile             # ビルド・デプロイ
 ├── deploy.ps1           # Windows用デプロイスクリプト
 ├── deploy.sh            # Linux用デプロイスクリプト
+├── gcloud.ps1           # gcloudラッパースクリプト
+├── etc-scraper.service  # systemdサービス定義
 └── downloads/           # CSVダウンロード先
 ```
 
 ## バージョン
 
-現在のバージョン: **1.1.0**
+現在のバージョン: **1.2.0**
 
 ## コミット履歴
 
+- `f6a29f5` - GetDownloadedFiles RPC追加、ScrapeMultiple非同期化、Makefile改善
+- `34f3434` - systemdサービス対応を追加
+- `ed01206` - README.mdとCLAUDE.mdを追加
 - `5ff9fdd` - ETC明細スクレイパー初期実装

@@ -45,6 +45,12 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - `browser.SetDownloadBehavior`でブラウザレベルでダウンロード許可
 - `chromedp.ListenBrowser`でダウンロードイベントを監視
 - ファイルポーリングでダウンロード完了を検出
+- セッションごとにタイムスタンプ付きフォルダを作成
+
+### gRPC API
+- `ScrapeMultiple`: バックグラウンドで非同期実行、即座にレスポンス返却
+- `GetDownloadedFiles`: 最新セッションフォルダからCSVファイルを取得
+- セッション管理: `lastSessionFolder`変数で最新のダウンロードフォルダを追跡
 
 ### アカウント形式
 - カンマ区切り: `user1:pass1,user2:pass2`
