@@ -13,22 +13,39 @@ ETC利用照会サービス（etc-meisai.jp）から利用明細CSVを自動ダ�
 ## 要件
 
 - Google Chrome（headlessモード用）
-- Windows（Git Bash / MSYS2）
+- Windows
 
 ## インストール
 
 ### ワンライナーインストール（推奨）
 
-Git Bash または MSYS2 で以下を実行:
+PowerShellで以下を実行:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.sh | bash
+```powershell
+irm https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.ps1 | iex
 ```
 
-デフォルトで `~/bin` にインストールされます。インストール先を変更する場合:
+デフォルトで `%LOCALAPPDATA%\etc-scraper` にインストールされ、PATHに自動追加されます。
 
-```bash
-INSTALL_DIR=/path/to/dir curl -fsSL https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.sh | bash
+インストール先を変更する場合:
+
+```powershell
+$env:INSTALL_DIR = "C:\path\to\dir"; irm https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.ps1 | iex
+```
+
+### Windowsサービスとして登録
+
+管理者権限のPowerShellで、サービスも一緒にインストール:
+
+```powershell
+$env:INSTALL_SERVICE = "true"; irm https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.ps1 | iex
+```
+
+または、インストール後に手動で:
+
+```powershell
+etc-scraper.exe -service install   # サービス登録
+etc-scraper.exe -service start     # サービス開始
 ```
 
 ### GitHub Releaseから手動インストール
@@ -38,7 +55,7 @@ INSTALL_DIR=/path/to/dir curl -fsSL https://raw.githubusercontent.com/yhonda-ohi
 
 ### ソースからビルド
 
-```bash
+```powershell
 # 要件: Go 1.24以上
 go mod download
 go build -o etc-scraper.exe .
@@ -191,10 +208,18 @@ scrape-vm/
 
 ## バージョン確認・更新
 
-```bash
+```powershell
 # 現在のバージョン確認
-./etc-scraper.exe -version
+etc-scraper.exe -version
 
 # 更新チェック
-./etc-scraper.exe -check-update
+etc-scraper.exe -check-update
 ```
+
+## アンインストール
+
+```powershell
+irm https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/uninstall.ps1 | iex
+```
+
+サービスも削除する場合は管理者権限で実行してください。
