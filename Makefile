@@ -1,4 +1,4 @@
-# ETC Scraper Makefile (Windows - PowerShell)
+# ETC Scraper Makefile
 
 # VM設定
 VM_NAME := instance-20251207-115015
@@ -19,7 +19,7 @@ LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X m
 # PowerShell command
 PS := powershell -ExecutionPolicy Bypass
 
-.PHONY: all build build-linux build-windows deploy ssh tunnel health clean help version
+.PHONY: all build build-linux build-windows deploy ssh tunnel health clean help version release release-zip
 
 # デフォルト
 all: deploy
@@ -27,12 +27,12 @@ all: deploy
 # Linux用ビルド
 build-linux:
 	@echo "=== Building for Linux ($(VERSION)) ==="
-	$(PS) -Command "$$env:GOOS='linux'; $$env:GOARCH='amd64'; $$env:CGO_ENABLED='0'; go build -ldflags '$(LDFLAGS)' -o $(BINARY_LINUX) ."
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BINARY_LINUX) .
 
 # Windows用ビルド
 build-windows:
 	@echo "=== Building for Windows ($(VERSION)) ==="
-	$(PS) -Command "$$env:GOOS='windows'; $$env:GOARCH='amd64'; $$env:CGO_ENABLED='0'; go build -ldflags '$(LDFLAGS)' -o $(BINARY_WIN) ."
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BINARY_WIN) .
 
 # 両方ビルド
 build: build-linux build-windows
@@ -42,6 +42,17 @@ version:
 	@echo "Version: $(VERSION)"
 	@echo "Commit:  $(GIT_COMMIT)"
 	@echo "Build:   $(BUILD_TIME)"
+
+# リリース用zip作成
+release-zip: build-windows
+	@echo "=== Creating release zip ==="
+	$(PS) -Command "Compress-Archive -Path '$(BINARY_WIN)' -DestinationPath 'etc-scraper_$(VERSION)_windows_amd64.zip' -Force"
+	@echo "Created: etc-scraper_$(VERSION)_windows_amd64.zip"
+
+# GitHub Release作成（タグ必須）
+release: release-zip
+	@echo "=== Creating GitHub Release $(VERSION) ==="
+	gh release create $(VERSION) etc-scraper_$(VERSION)_windows_amd64.zip --title "$(VERSION)" --generate-notes
 
 # VMにデプロイ（ビルド＋アップロード＋配置＋サービス登録）
 deploy:
@@ -63,18 +74,22 @@ health:
 
 # クリーンアップ
 clean:
-	rm -f $(BINARY_LINUX) $(BINARY_WIN)
+	rm -f $(BINARY_LINUX) $(BINARY_WIN) *.zip
 
 # ヘルプ
 help:
 	@echo "Usage:"
-	@echo "  make deploy  - Build and deploy to VM (uses deploy.ps1)"
-	@echo "  make build   - Build both binaries with version info"
-	@echo "  make version - Show version info"
-	@echo "  make ssh     - SSH to VM"
-	@echo "  make tunnel  - Start IAP tunnel to gRPC port"
-	@echo "  make health  - Check service health on VM"
-	@echo "  make clean   - Remove binaries"
+	@echo "  make deploy      - Build and deploy to VM (uses deploy.ps1)"
+	@echo "  make build       - Build both binaries with version info"
+	@echo "  make build-windows - Build Windows binary only"
+	@echo "  make build-linux - Build Linux binary only"
+	@echo "  make version     - Show version info"
+	@echo "  make release-zip - Build and create release zip"
+	@echo "  make release     - Create GitHub release (requires tag)"
+	@echo "  make ssh         - SSH to VM"
+	@echo "  make tunnel      - Start IAP tunnel to gRPC port"
+	@echo "  make health      - Check service health on VM"
+	@echo "  make clean       - Remove binaries and zips"
 	@echo ""
 	@echo "Windows Service (run as Administrator):"
 	@echo "  etc-scraper.exe -service install   - Install Windows service"
