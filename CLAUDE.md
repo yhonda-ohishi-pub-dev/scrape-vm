@@ -4,22 +4,44 @@
 
 ## プロジェクト概要
 
-ETC利用照会サービス（etc-meisai.jp）から利用明細CSVを自動ダウンロードするGoアプリケーション。CLIモードとgRPCサーバーモードの両方をサポート。
+ETC利用照会サービス（etc-meisai.jp）から利用明細CSVを自動ダウンロードするGoアプリケーション。CLIモード、gRPCサーバーモード、P2Pモード、Windowsサービスモードをサポート。GitHub Release経由の自動更新機能付き。
 
 ## ビルド・実行コマンド
 
 ```bash
-# ビルド
-go build -o etc-scraper.exe .
+# ビルド（バージョン情報付き）
+make build-windows
 
 # Linux用ビルド
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o etc-scraper-linux .
+make build-linux
 
 # 実行（CLIモード）
 ./etc-scraper.exe -accounts=user:pass -headless=true
 
 # 実行（gRPCサーバー）
 ./etc-scraper.exe -grpc -port=50051
+
+# 実行（P2Pモード）
+# 初回: APIキー取得セットアップ（ブラウザでOAuth認証）
+./etc-scraper.exe -p2p-setup
+
+# P2Pモードで起動（クレデンシャルファイルから自動読み込み）
+./etc-scraper.exe -p2p
+
+# APIキーを直接指定する場合
+./etc-scraper.exe -p2p -p2p-apikey=YOUR_API_KEY
+# または環境変数で
+P2P_API_KEY=xxx ./etc-scraper.exe -p2p
+
+# Windowsサービスとして実行（管理者権限必要）
+./etc-scraper.exe -service install   # サービス登録
+./etc-scraper.exe -service start     # サービス開始
+./etc-scraper.exe -service stop      # サービス停止
+./etc-scraper.exe -service uninstall # サービス削除
+
+# バージョン確認・更新チェック
+./etc-scraper.exe -version
+./etc-scraper.exe -check-update
 
 # VMへデプロイ
 make deploy
@@ -41,6 +63,23 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - **server/** - サーバー実装
   - `grpc.go` - gRPCサービス実装
 
+- **service/** - Windowsサービス実装
+  - `config.go` - サービス設定
+  - `program.go` - service.Interface実装（Start/Stop）
+  - `manager.go` - サービス管理コマンド
+  - `grpc_impl.go` - サービス用gRPC実装
+
+- **updater/** - 自動更新機能
+  - `config.go` - 更新設定（リポジトリ情報、チェック間隔）
+  - `updater.go` - GitHub Release更新チェック・ダウンロード
+  - `restart.go` - サービス再起動処理
+
+- **p2p/** - P2P通信実装（WebRTC + Cloudflare Workers）
+  - `signaling.go` - WebSocketシグナリングクライアント
+  - `webrtc.go` - pion/webrtcを使用したWebRTCクライアント
+  - `client.go` - 統合P2Pクライアント
+  - `setup.go` - OAuth認証によるAPIキー取得
+
 - **proto/** - gRPC定義とコード生成
   - `scraper.proto` - サービス定義
   - 再生成: `protoc --go_out=. --go-grpc_out=. proto/scraper.proto`
@@ -59,6 +98,15 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - `GetDownloadedFiles`: 最新セッションフォルダからCSVファイルを取得
 - セッション管理: `lastSessionFolder`変数で最新のダウンロードフォルダを追跡
 
+### P2P通信
+- シグナリングサーバー: Cloudflare Workers + Durable Objects（cf-wbrtc-auth）
+- シグナリングURL: `wss://cf-wbrtc-auth.m-tama-ramu.workers.dev/ws/app`
+- WebRTC: pion/webrtcでDataChannel通信
+- 認証: APIキーベース（`-p2p-setup`で取得）
+- クレデンシャルファイル: `p2p_credentials.env`
+- メッセージ形式: JSON（type, payload）
+- 対応コマンド: `ping`, `health`, `scrape`, `get_files`
+
 ### アカウント形式
 - カンマ区切り: `user1:pass1,user2:pass2`
 - JSON配列: `["user1:pass1","user2:pass2"]`
@@ -71,8 +119,23 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - リモートパス: `/opt/etc-scraper/etc-scraper`
 - systemdサービス: `etc-scraper.service`（ポート50051）
 
+### Windowsサービス
+- kardianos/serviceライブラリ使用
+- サービス名: `etc-scraper`
+- 自動起動設定（インストール時）
+- 管理者権限が必要
+- サービスは`C:\Windows\System32`で動作するため、パスは絶対パス指定推奨
+
+### 自動更新
+- creativeprojects/go-selfupdateライブラリ使用
+- GitHubリポジトリ: `yhonda-ohishi-pub-dev/scrape-vm`
+- デフォルトチェック間隔: 1時間
+- 更新検出時: ダウンロード → サービス自動再起動
+- バイナリ命名規則: `etc-scraper_v1.x.x_windows_amd64.zip`
+
 ## 注意事項
 
 - Chromeがインストールされている必要あり
 - headless=falseでデバッグ可能
 - ダウンロードタイムアウト: 30秒
+- Windowsサービスのinstall/start/stopには管理者権限必要

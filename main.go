@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -13,10 +14,13 @@ import (
 	"time"
 
 	"github.com/anthropics/cf-wbrtc-auth/go/grpcweb"
+	svc "github.com/kardianos/service"
 	"github.com/pion/webrtc/v4"
 	"github.com/scrape-vm/p2p"
 	"github.com/scrape-vm/scrapers"
 	"github.com/scrape-vm/server"
+	myservice "github.com/scrape-vm/service"
+	"github.com/scrape-vm/updater"
 )
 
 func main() {
@@ -26,6 +30,7 @@ func main() {
 	downloadPath := flag.String("download", "./downloads", "Download directory")
 	grpcMode := flag.Bool("grpc", false, "Run as gRPC server")
 	grpcPort := flag.String("port", "50051", "gRPC server port")
+
 	// P2Pモード用フラグ
 	p2pMode := flag.Bool("p2p", false, "Run as P2P client")
 	p2pSetup := flag.Bool("p2p-setup", false, "Run P2P OAuth setup to get API key")
@@ -34,9 +39,57 @@ func main() {
 	p2pAPIKey := flag.String("p2p-apikey", "", "P2P API key (or set P2P_API_KEY env)")
 	p2pAppName := flag.String("p2p-name", "etc-scraper", "P2P app name")
 	p2pCredsFile := flag.String("p2p-creds", "p2p_credentials.env", "P2P credentials file path")
+
+	// サービス管理フラグ
+	serviceCmd := flag.String("service", "", "Service command: install|uninstall|start|stop|restart|status")
+
+	// 自動更新フラグ
+	checkUpdate := flag.Bool("check-update", false, "Check for updates and exit")
+	autoUpdate := flag.Bool("auto-update", true, "Enable automatic updates")
+	updateInterval := flag.String("update-interval", "1h", "Update check interval (e.g., 1h, 30m)")
+
+	// バージョン表示
+	showVersion := flag.Bool("version", false, "Show version information")
+
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "[SCRAPER] ", log.LstdFlags)
+
+	// バージョン表示
+	if *showVersion {
+		printVersion()
+		return
+	}
+
+	// 手動更新チェック
+	if *checkUpdate {
+		runUpdateCheck(logger)
+		return
+	}
+
+	// サービスコマンド
+	if *serviceCmd != "" {
+		prg := &myservice.Program{
+			Logger:         logger,
+			GRPCPort:       *grpcPort,
+			DownloadPath:   *downloadPath,
+			Headless:       *headless,
+			Version:        Version,
+			AutoUpdate:     *autoUpdate,
+			UpdateInterval: *updateInterval,
+		}
+
+		if err := myservice.RunServiceCommand(*serviceCmd, prg, logger); err != nil {
+			log.Fatalf("Service command failed: %v", err)
+		}
+		return
+	}
+
+	// サービスとして起動されているか確認
+	if isRunningAsService() {
+		runAsService(logger, *grpcPort, *downloadPath, *headless, *autoUpdate, *updateInterval)
+		return
+	}
 
 	// P2Pセットアップモード（APIキー取得）
 	if *p2pSetup {
@@ -71,12 +124,97 @@ func main() {
 
 	// gRPCモード
 	if *grpcMode {
-		server.RunGRPCServer(logger, *grpcPort, *downloadPath, *headless)
+		runGRPCServerWithAutoUpdate(logger, *grpcPort, *downloadPath, *headless, *autoUpdate, *updateInterval)
 		return
 	}
 
 	// CLIモード（従来の動作）
 	runCLIMode(logger, *accountsFlag, *downloadPath, *headless)
+}
+
+// printVersion prints version information
+func printVersion() {
+	fmt.Printf("etc-scraper version %s\n", Version)
+	fmt.Printf("Git commit: %s\n", GitCommit)
+	fmt.Printf("Build time: %s\n", BuildTime)
+}
+
+// isRunningAsService checks if the process is running as a Windows service
+func isRunningAsService() bool {
+	return !svc.Interactive()
+}
+
+// runAsService runs the application as a Windows service
+func runAsService(logger *log.Logger, port, downloadPath string, headless, autoUpdate bool, updateInterval string) {
+	prg := &myservice.Program{
+		Logger:         logger,
+		GRPCPort:       port,
+		DownloadPath:   downloadPath,
+		Headless:       headless,
+		Version:        Version,
+		AutoUpdate:     autoUpdate,
+		UpdateInterval: updateInterval,
+	}
+
+	if err := myservice.RunServiceCommand("run", prg, logger); err != nil {
+		log.Fatalf("Service run failed: %v", err)
+	}
+}
+
+// runGRPCServerWithAutoUpdate runs gRPC server with auto-update support
+func runGRPCServerWithAutoUpdate(logger *log.Logger, port, downloadPath string, headless, autoUpdate bool, updateInterval string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if autoUpdate {
+		cfg := updater.DefaultConfig(Version)
+		if interval, err := updater.ParseDuration(updateInterval); err == nil {
+			cfg.CheckInterval = interval
+		}
+
+		u := updater.New(cfg, logger)
+
+		// Check for updates at startup
+		if updated, err := u.CheckAndUpdate(ctx); err != nil {
+			logger.Printf("Update check error: %v", err)
+		} else if updated {
+			logger.Println("Update applied, restarting...")
+			if err := updater.RestartSelf(logger); err != nil {
+				logger.Printf("Failed to restart: %v", err)
+			}
+			return
+		}
+
+		// Start periodic update checks
+		u.StartPeriodicCheck(ctx, func() {
+			logger.Println("Update available, applying...")
+			if _, err := u.CheckAndUpdate(ctx); err == nil {
+				logger.Println("Update applied, restarting...")
+				updater.RestartSelf(logger)
+			}
+		})
+	}
+
+	// Start gRPC server
+	server.RunGRPCServer(logger, port, downloadPath, headless)
+}
+
+// runUpdateCheck checks for updates and prints the result
+func runUpdateCheck(logger *log.Logger) {
+	u := updater.New(updater.DefaultConfig(Version), logger)
+
+	ctx := context.Background()
+	release, needsUpdate, err := u.CheckForUpdate(ctx)
+	if err != nil {
+		log.Fatalf("Update check failed: %v", err)
+	}
+
+	if needsUpdate {
+		fmt.Printf("New version available: %s (current: %s)\n", release.Version(), Version)
+		fmt.Println("Run with -auto-update=true to automatically update")
+	} else {
+		fmt.Printf("You are running the latest version (%s)\n", Version)
+	}
 }
 
 // runCLIMode runs the scraper in CLI mode
