@@ -12,12 +12,34 @@ ETC利用照会サービス（etc-meisai.jp）から利用明細CSVを自動ダ�
 
 ## 要件
 
-- Go 1.24以上
 - Google Chrome（headlessモード用）
+- Windows（Git Bash / MSYS2）
 
 ## インストール
 
+### ワンライナーインストール（推奨）
+
+Git Bash または MSYS2 で以下を実行:
+
 ```bash
+curl -fsSL https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.sh | bash
+```
+
+デフォルトで `~/bin` にインストールされます。インストール先を変更する場合:
+
+```bash
+INSTALL_DIR=/path/to/dir curl -fsSL https://raw.githubusercontent.com/yhonda-ohishi-pub-dev/scrape-vm/main/install.sh | bash
+```
+
+### GitHub Releaseから手動インストール
+
+1. [Releases](https://github.com/yhonda-ohishi-pub-dev/scrape-vm/releases) から最新版をダウンロード
+2. zipを展開して `etc-scraper.exe` をPATHの通った場所に配置
+
+### ソースからビルド
+
+```bash
+# 要件: Go 1.24以上
 go mod download
 go build -o etc-scraper.exe .
 ```
@@ -167,14 +189,12 @@ scrape-vm/
 └── downloads/           # CSVダウンロード先
 ```
 
-## バージョン
+## バージョン確認・更新
 
-現在のバージョン: **1.2.0**
+```bash
+# 現在のバージョン確認
+./etc-scraper.exe -version
 
-## コミット履歴
-
-- `c536b28` - ソースコード分割: scrapers/とserver/パッケージに分離
-- `f6a29f5` - GetDownloadedFiles RPC追加、ScrapeMultiple非同期化、Makefile改善
-- `34f3434` - systemdサービス対応を追加
-- `ed01206` - README.mdとCLAUDE.mdを追加
-- `5ff9fdd` - ETC明細スクレイパー初期実装
+# 更新チェック
+./etc-scraper.exe -check-update
+```
