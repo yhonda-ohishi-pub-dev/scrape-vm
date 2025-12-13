@@ -80,6 +80,25 @@ try {
 
     # Install as service if requested
     if ($InstallService) {
+        # P2P setup first (OAuth authentication)
+        Write-Host ""
+        Write-Host "Setting up P2P credentials (OAuth authentication)..." -ForegroundColor Cyan
+        Write-Host "A browser window will open for authentication." -ForegroundColor Yellow
+
+        # Run p2p-setup with credentials saved to install directory
+        $CredsPath = Join-Path $InstallDir "p2p_credentials.env"
+        & $ExePath -p2p-setup -p2p-creds $CredsPath
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "P2P setup failed or was cancelled." -ForegroundColor Red
+            Write-Host "You can run setup later with: etc-scraper.exe -p2p-setup" -ForegroundColor Yellow
+        } elseif (-not (Test-Path $CredsPath)) {
+            Write-Host "Credentials file not created. Service may not start properly." -ForegroundColor Yellow
+        } else {
+            Write-Host "P2P credentials saved!" -ForegroundColor Green
+        }
+
+        # Install service
         Write-Host ""
         Write-Host "Installing Windows Service..." -ForegroundColor Cyan
         & $ExePath -service install
