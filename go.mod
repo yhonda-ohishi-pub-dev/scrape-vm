@@ -3,6 +3,7 @@ module github.com/scrape-vm
 go 1.24.0
 
 require (
+	github.com/anthropics/cf-wbrtc-auth/go/grpcweb v0.0.0
 	github.com/chromedp/cdproto v0.0.0-20241022234722-4d5d5faf59fb
 	github.com/chromedp/chromedp v0.11.2
 	github.com/gorilla/websocket v1.5.3
@@ -10,6 +11,8 @@ require (
 	google.golang.org/grpc v1.77.0
 	google.golang.org/protobuf v1.36.10
 )
+
+replace github.com/anthropics/cf-wbrtc-auth/go/grpcweb => C:/js/cf-wbrtc-auth/go/grpcweb
 
 require (
 	github.com/chromedp/sysutil v1.1.0 // indirect

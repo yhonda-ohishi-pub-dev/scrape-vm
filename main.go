@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/anthropics/cf-wbrtc-auth/go/grpcweb"
+	"github.com/pion/webrtc/v4"
 	"github.com/scrape-vm/p2p"
 	"github.com/scrape-vm/scrapers"
 	"github.com/scrape-vm/server"
@@ -55,8 +57,13 @@ func main() {
 				logger.Printf("Loaded API key from %s", *p2pCredsFile)
 			}
 		}
+		// APIキーがなければ自動でセットアップを実行
 		if apiKey == "" {
-			log.Fatal("P2P mode requires API key. Run with -p2p-setup first, or use -p2p-apikey / P2P_API_KEY env")
+			logger.Println("No API key found, starting OAuth setup...")
+			apiKey = runAutoSetup(logger, *p2pServerURL, *p2pCredsFile)
+			if apiKey == "" {
+				log.Fatal("Failed to obtain API key")
+			}
 		}
 		runP2PMode(logger, *p2pURL, apiKey, *p2pAppName, *downloadPath, *headless)
 		return
@@ -227,8 +234,8 @@ func (h *p2pEventHandler) OnP2PDisconnected() {
 }
 
 func (h *p2pEventHandler) OnP2PMessage(data []byte) {
-	h.logger.Printf("Received message: %s", string(data))
-	handleP2PMessage(h.client, h.logger, data, h.downloadPath, h.headless)
+	// gRPC-Web transport handles messages, this is for non-grpc messages (if any)
+	h.logger.Printf("Received raw message (%d bytes) - handled by gRPC-Web transport", len(data))
 }
 
 func (h *p2pEventHandler) OnP2PError(err error) {
@@ -255,6 +262,10 @@ func runP2PMode(logger *log.Logger, wsURL, apiKey, appName, downloadPath string,
 		Capabilities: []string{"scrape", "etc"},
 		Logger:       logger,
 		Handler:      handler,
+		OnDataChannelReady: func(dc *webrtc.DataChannel) {
+			logger.Println("DataChannel ready, setting up gRPC-Web transport...")
+			setupGRPCWebTransport(dc, logger, downloadPath, headless)
+		},
 	})
 
 	// ハンドラにclientを設定
@@ -278,7 +289,161 @@ func runP2PMode(logger *log.Logger, wsURL, apiKey, appName, downloadPath string,
 	logger.Println("Shutting down...")
 }
 
-// runP2PSetup runs OAuth setup to get API key
+// setupGRPCWebTransport sets up gRPC-Web handlers on the DataChannel
+func setupGRPCWebTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadPath string, headless bool) {
+	transport := grpcweb.NewTransport(dc, nil)
+
+	// Register Server Reflection
+	grpcweb.RegisterReflection(transport)
+
+	// Register scraper.ETCScraper/Health handler
+	transport.RegisterHandler("/scraper.ETCScraper/Health", grpcweb.MakeHandler(
+		func(data []byte) (json.RawMessage, error) {
+			return data, nil
+		},
+		func(resp map[string]interface{}) ([]byte, error) {
+			return json.Marshal(resp)
+		},
+		func(ctx context.Context, req json.RawMessage) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"status":  "ok",
+				"version": server.Version,
+			}, nil
+		},
+	))
+
+	// Register scraper.ETCScraper/ScrapeMultiple handler
+	transport.RegisterHandler("/scraper.ETCScraper/ScrapeMultiple", grpcweb.MakeHandler(
+		func(data []byte) (*ScrapeRequest, error) {
+			var req ScrapeRequest
+			if err := json.Unmarshal(data, &req); err != nil {
+				return nil, err
+			}
+			return &req, nil
+		},
+		func(resp *ScrapeResponse) ([]byte, error) {
+			return json.Marshal(resp)
+		},
+		func(ctx context.Context, req *ScrapeRequest) (*ScrapeResponse, error) {
+			logger.Printf("Received ScrapeMultiple request with %d accounts", len(req.Accounts))
+
+			// Run scraping in background
+			go runScrapeJob(logger, req.Accounts, downloadPath, headless)
+
+			return &ScrapeResponse{
+				Message:      "Scraping started",
+				AccountCount: len(req.Accounts),
+			}, nil
+		},
+	))
+
+	// Register scraper.ETCScraper/GetDownloadedFiles handler
+	transport.RegisterHandler("/scraper.ETCScraper/GetDownloadedFiles", grpcweb.MakeHandler(
+		func(data []byte) (json.RawMessage, error) {
+			return data, nil
+		},
+		func(resp *FilesResponse) ([]byte, error) {
+			return json.Marshal(resp)
+		},
+		func(ctx context.Context, req json.RawMessage) (*FilesResponse, error) {
+			files, sessionFolder := getDownloadedFiles(downloadPath, logger)
+			return &FilesResponse{
+				SessionFolder: sessionFolder,
+				Files:         files,
+			}, nil
+		},
+	))
+
+	// Start the transport
+	transport.Start()
+	logger.Println("gRPC-Web transport started")
+}
+
+// ScrapeRequest for gRPC-Web
+type ScrapeRequest struct {
+	Accounts []struct {
+		UserID   string `json:"userId"`
+		Password string `json:"password"`
+	} `json:"accounts"`
+}
+
+// ScrapeResponse for gRPC-Web
+type ScrapeResponse struct {
+	Message      string `json:"message"`
+	AccountCount int    `json:"accountCount"`
+}
+
+// FilesResponse for gRPC-Web
+type FilesResponse struct {
+	SessionFolder string                   `json:"sessionFolder"`
+	Files         []map[string]interface{} `json:"files"`
+}
+
+// runScrapeJob runs scraping in background
+func runScrapeJob(logger *log.Logger, accounts []struct {
+	UserID   string `json:"userId"`
+	Password string `json:"password"`
+}, downloadPath string, headless bool) {
+	sessionFolder := filepath.Join(downloadPath, time.Now().Format("20060102_150405"))
+	if err := os.MkdirAll(sessionFolder, 0755); err != nil {
+		logger.Printf("Failed to create session folder: %v", err)
+		return
+	}
+
+	successCount := 0
+	for i, acc := range accounts {
+		logger.Printf("Processing account %d/%d: %s", i+1, len(accounts), acc.UserID)
+
+		config := &scrapers.ScraperConfig{
+			UserID:       acc.UserID,
+			Password:     acc.Password,
+			DownloadPath: sessionFolder,
+			Headless:     headless,
+			Timeout:      60 * time.Second,
+		}
+
+		if err := processETCAccount(config, logger); err != nil {
+			logger.Printf("ERROR: %s: %v", acc.UserID, err)
+			continue
+		}
+		successCount++
+
+		if i < len(accounts)-1 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	logger.Printf("Scraping completed: %d/%d accounts succeeded", successCount, len(accounts))
+}
+
+// runAutoSetup performs OAuth setup and returns API key (for automatic setup during -p2p mode)
+func runAutoSetup(logger *log.Logger, serverURL, credsFile string) string {
+	logger.Printf("Starting automatic OAuth setup...")
+	logger.Printf("Server: %s", serverURL)
+
+	ctx := context.Background()
+	result, err := p2p.Setup(ctx, p2p.SetupConfig{
+		ServerURL:    serverURL,
+		PollInterval: 2 * time.Second,
+		Timeout:      5 * time.Minute,
+	})
+	if err != nil {
+		logger.Printf("Setup failed: %v", err)
+		return ""
+	}
+
+	// 保存
+	if err := p2p.SaveCredentials(credsFile, result); err != nil {
+		logger.Printf("Warning: Failed to save credentials: %v", err)
+	} else {
+		logger.Printf("Credentials saved to: %s", credsFile)
+	}
+
+	logger.Printf("Setup complete! API Key obtained.")
+	return result.APIKey
+}
+
+// runP2PSetup runs OAuth setup to get API key (standalone mode)
 func runP2PSetup(logger *log.Logger, serverURL, credsFile string) {
 	logger.Printf("Starting P2P OAuth setup...")
 	logger.Printf("Server: %s", serverURL)
@@ -305,120 +470,6 @@ func runP2PSetup(logger *log.Logger, serverURL, credsFile string) {
 	logger.Println("")
 	logger.Println("Now you can run P2P mode:")
 	logger.Printf("  ./etc-scraper.exe -p2p")
-}
-
-// P2PMessage represents a message from browser
-type P2PMessage struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-// ScrapePayload for scrape command
-type ScrapePayload struct {
-	Accounts []struct {
-		UserID   string `json:"userId"`
-		Password string `json:"password"`
-	} `json:"accounts"`
-}
-
-// P2PResponse represents a response to browser
-type P2PResponse struct {
-	Type    string      `json:"type"`
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
-}
-
-func handleP2PMessage(client *p2p.Client, logger *log.Logger, data []byte, downloadPath string, headless bool) {
-	var msg P2PMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		logger.Printf("Failed to parse message: %v", err)
-		sendP2PResponse(client, "error", false, "Invalid message format", nil)
-		return
-	}
-
-	switch msg.Type {
-	case "ping":
-		sendP2PResponse(client, "pong", true, "", nil)
-
-	case "health":
-		sendP2PResponse(client, "health", true, "", map[string]interface{}{
-			"version": server.Version,
-			"status":  "ok",
-		})
-
-	case "scrape":
-		var payload ScrapePayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			sendP2PResponse(client, "scrape_result", false, "Invalid payload", nil)
-			return
-		}
-
-		// バックグラウンドでスクレイピング実行
-		go func() {
-			sessionFolder := filepath.Join(downloadPath, time.Now().Format("20060102_150405"))
-			if err := os.MkdirAll(sessionFolder, 0755); err != nil {
-				sendP2PResponse(client, "scrape_result", false, err.Error(), nil)
-				return
-			}
-
-			sendP2PResponse(client, "scrape_started", true, "Scraping started", map[string]interface{}{
-				"sessionFolder": filepath.Base(sessionFolder),
-				"accountCount":  len(payload.Accounts),
-			})
-
-			successCount := 0
-			for i, acc := range payload.Accounts {
-				logger.Printf("Processing account %d/%d: %s", i+1, len(payload.Accounts), acc.UserID)
-
-				config := &scrapers.ScraperConfig{
-					UserID:       acc.UserID,
-					Password:     acc.Password,
-					DownloadPath: sessionFolder,
-					Headless:     headless,
-					Timeout:      60 * time.Second,
-				}
-
-				if err := processETCAccount(config, logger); err != nil {
-					logger.Printf("ERROR: %s: %v", acc.UserID, err)
-					continue
-				}
-				successCount++
-
-				if i < len(payload.Accounts)-1 {
-					time.Sleep(2 * time.Second)
-				}
-			}
-
-			sendP2PResponse(client, "scrape_result", true, "Scraping completed", map[string]interface{}{
-				"sessionFolder": filepath.Base(sessionFolder),
-				"successCount":  successCount,
-				"totalCount":    len(payload.Accounts),
-			})
-		}()
-
-	case "get_files":
-		files, sessionFolder := getDownloadedFiles(downloadPath, logger)
-		sendP2PResponse(client, "files", true, "", map[string]interface{}{
-			"sessionFolder": sessionFolder,
-			"files":         files,
-		})
-
-	default:
-		sendP2PResponse(client, "error", false, "Unknown command: "+msg.Type, nil)
-	}
-}
-
-func sendP2PResponse(client *p2p.Client, msgType string, success bool, message string, data interface{}) {
-	resp := P2PResponse{
-		Type:    msgType,
-		Success: success,
-		Message: message,
-		Data:    data,
-	}
-	if err := client.SendJSON(resp); err != nil {
-		log.Printf("Failed to send response: %v", err)
-	}
 }
 
 func getDownloadedFiles(downloadPath string, logger *log.Logger) ([]map[string]interface{}, string) {

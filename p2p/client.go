@@ -19,29 +19,34 @@ type ClientEventHandler interface {
 	OnP2PError(err error)
 }
 
+// DataChannelReadyCallback is called when DataChannel is ready (for grpcweb transport setup)
+type DataChannelReadyCallback func(dc *webrtc.DataChannel)
+
 // Client integrates SignalingClient and PeerConnection for P2P communication
 type Client struct {
-	config     *ClientConfig
-	signaling  *SignalingClient
-	peer       *PeerConnection
-	logger     *log.Logger
-	handler    ClientEventHandler
-	mu         sync.RWMutex
-	connected  bool
-	registered bool
-	ctx        context.Context
-	cancel     context.CancelFunc
+	config            *ClientConfig
+	signaling         *SignalingClient
+	peer              *PeerConnection
+	logger            *log.Logger
+	handler           ClientEventHandler
+	dcReadyCallback   DataChannelReadyCallback
+	mu                sync.RWMutex
+	connected         bool
+	registered        bool
+	ctx               context.Context
+	cancel            context.CancelFunc
 }
 
 // ClientConfig holds configuration for P2P Client
 type ClientConfig struct {
-	SignalingURL string   // WebSocket URL (e.g., wss://example.com/ws/app)
-	APIKey       string   // API key for authentication
-	AppName      string   // Application name
-	Capabilities []string // App capabilities
-	ICEServers   []webrtc.ICEServer
-	Logger       *log.Logger
-	Handler      ClientEventHandler // Optional event handler
+	SignalingURL          string   // WebSocket URL (e.g., wss://example.com/ws/app)
+	APIKey                string   // API key for authentication
+	AppName               string   // Application name
+	Capabilities          []string // App capabilities
+	ICEServers            []webrtc.ICEServer
+	Logger                *log.Logger
+	Handler               ClientEventHandler       // Optional event handler
+	OnDataChannelReady    DataChannelReadyCallback // Called when DataChannel is ready
 }
 
 // NewClient creates a new P2P Client
@@ -52,9 +57,10 @@ func NewClient(config *ClientConfig) *Client {
 	}
 
 	return &Client{
-		config:  config,
-		logger:  logger,
-		handler: config.Handler,
+		config:          config,
+		logger:          logger,
+		handler:         config.Handler,
+		dcReadyCallback: config.OnDataChannelReady,
 	}
 }
 
@@ -113,12 +119,31 @@ func (a *signalingEventAdapter) OnAppRegistered(payload AppRegisteredPayload) {
 func (a *signalingEventAdapter) OnOffer(sdp string, requestID string) {
 	a.client.logger.Printf("Received offer from browser (requestID: %s)", requestID)
 
-	if a.client.peer == nil {
-		a.client.logger.Printf("Peer connection not initialized, creating...")
+	a.client.mu.Lock()
+	peer := a.client.peer
+	a.client.mu.Unlock()
+
+	// 既存の接続が閉じている場合は新しいPeerConnectionを作成
+	if peer == nil || peer.ConnectionState() == webrtc.PeerConnectionStateClosed ||
+		peer.ConnectionState() == webrtc.PeerConnectionStateFailed {
+		a.client.logger.Printf("Creating new peer connection...")
+		// 古い接続があればクリーンアップ
+		if peer != nil {
+			peer.Close()
+		}
 		a.client.createPeerConnection()
 	}
 
-	if err := a.client.peer.HandleOffer(sdp, requestID); err != nil {
+	a.client.mu.RLock()
+	peer = a.client.peer
+	a.client.mu.RUnlock()
+
+	if peer == nil {
+		a.client.logger.Printf("Failed to create peer connection")
+		return
+	}
+
+	if err := peer.HandleOffer(sdp, requestID); err != nil {
 		a.client.logger.Printf("Failed to handle offer: %v", err)
 		if a.client.handler != nil {
 			a.client.handler.OnP2PError(fmt.Errorf("failed to handle offer: %w", err))
@@ -181,6 +206,18 @@ func (a *dataChannelEventAdapter) OnOpen() {
 	a.client.mu.Lock()
 	a.client.connected = true
 	a.client.mu.Unlock()
+
+	// Call DataChannelReady callback for grpcweb transport setup
+	if a.client.dcReadyCallback != nil {
+		a.client.mu.RLock()
+		peer := a.client.peer
+		a.client.mu.RUnlock()
+		if peer != nil {
+			if dc := peer.DataChannel(); dc != nil {
+				a.client.dcReadyCallback(dc)
+			}
+		}
+	}
 
 	if a.client.handler != nil {
 		a.client.handler.OnP2PConnected()
