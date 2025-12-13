@@ -14,3 +14,15 @@ downloads/
 # OS
 .DS_Store
 Thumbs.db
+
+# Temp docs
+docs/tmp/
+
+# Credentials
+p2p_credentials.env
+
+# Release zips
+*.zip
+
+# Misc
+nul
