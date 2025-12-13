@@ -78,28 +78,14 @@ func (p *Program) Start(s service.Service) error {
 
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] Start() launching run() goroutine...\n")
-		p.logFile.Sync()
-	}
-
 	// Start the main service loop
 	go p.run()
-
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] Start() returning nil (success)\n")
-		p.logFile.Sync()
-	}
 
 	return nil
 }
 
 // Stop is called when the service stops
 func (p *Program) Stop(s service.Service) error {
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] Stop() called\n")
-		p.logFile.Sync()
-	}
 	if p.Logger != nil {
 		p.Logger.Println("Service stopping...")
 	}
@@ -158,29 +144,13 @@ func (p *Program) run() {
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
-			if p.logFile != nil {
-				p.logFile.WriteString(fmt.Sprintf("[PANIC] run() recovered: %v\n", r))
-				p.logFile.Sync()
-			}
+			p.Logger.Printf("run() panic recovered: %v", r)
 		}
 	}()
 
-	// ログファイルに直接書き込んでデバッグ
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] run() started\n")
-		p.logFile.Sync()
-	}
-
 	// Loggerがnilの場合はlogFileから作成
 	if p.Logger == nil && p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] Logger was nil, creating from logFile\n")
-		p.logFile.Sync()
 		p.Logger = log.New(p.logFile, "[SCRAPER] ", log.LstdFlags)
-	}
-
-	if p.logFile != nil {
-		p.logFile.WriteString(fmt.Sprintf("[DEBUG] DownloadPath=%s, IsAbs=%v\n", p.DownloadPath, filepath.IsAbs(p.DownloadPath)))
-		p.logFile.Sync()
 	}
 
 	// Resolve download path to absolute path if relative
@@ -190,37 +160,14 @@ func (p *Program) run() {
 		p.DownloadPath = filepath.Join(exeDir, p.DownloadPath)
 	}
 
-	if p.logFile != nil {
-		p.logFile.WriteString(fmt.Sprintf("[DEBUG] Resolved DownloadPath=%s\n", p.DownloadPath))
-		p.logFile.Sync()
-	}
-
 	// Ensure download directory exists
 	if err := os.MkdirAll(p.DownloadPath, 0755); err != nil {
-		if p.logFile != nil {
-			p.logFile.WriteString(fmt.Sprintf("[DEBUG] MkdirAll error: %v\n", err))
-			p.logFile.Sync()
-		}
+		p.Logger.Printf("Failed to create download directory: %v", err)
 	}
 
-	if p.logFile != nil {
-		p.logFile.WriteString(fmt.Sprintf("[DEBUG] Download directory ready: %s\n", p.DownloadPath))
-		p.logFile.Sync()
-	}
-
-	// Check for updates at startup
+	// Start auto-update if enabled
 	if p.AutoUpdate {
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Auto-update DISABLED for debugging\n")
-			p.logFile.Sync()
-		}
-		// DISABLED FOR DEBUGGING
-		// p.startAutoUpdate()
-	}
-
-	if p.logFile != nil {
-		p.logFile.WriteString(fmt.Sprintf("[DEBUG] P2PMode=%v, starting server...\n", p.P2PMode))
-		p.logFile.Sync()
+		p.startAutoUpdate()
 	}
 
 	// Start P2P or gRPC server
@@ -244,6 +191,11 @@ func (p *Program) startAutoUpdate() {
 
 	// Check for updates at startup (non-blocking)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.Logger.Printf("Auto-update startup check panic recovered: %v", r)
+			}
+		}()
 		if updated, err := p.updater.CheckAndUpdate(p.ctx); err != nil {
 			p.Logger.Printf("Startup update check failed: %v", err)
 		} else if updated {
@@ -256,6 +208,11 @@ func (p *Program) startAutoUpdate() {
 
 	// Start periodic update checks
 	p.updater.StartPeriodicCheck(p.ctx, func() {
+		defer func() {
+			if r := recover(); r != nil {
+				p.Logger.Printf("Auto-update periodic check panic recovered: %v", r)
+			}
+		}()
 		p.Logger.Println("Update available, applying...")
 		if _, err := p.updater.CheckAndUpdate(p.ctx); err != nil {
 			p.Logger.Printf("Failed to apply update: %v", err)
@@ -304,19 +261,11 @@ func (p *Program) runGRPCServer() {
 
 // runP2PClient starts the P2P client for WebRTC communication
 func (p *Program) runP2PClient() {
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] runP2PClient() entered\n")
-		p.logFile.Sync()
-	}
-
 	// Loggerがnilの場合の安全対策
 	if p.Logger == nil {
 		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Logger is nil in runP2PClient, creating...\n")
-			p.logFile.Sync()
 			p.Logger = log.New(p.logFile, "[SCRAPER] ", log.LstdFlags)
 		} else {
-			// 最後の手段: stderrに出力
 			p.Logger = log.New(os.Stderr, "[SCRAPER] ", log.LstdFlags)
 		}
 	}
@@ -346,31 +295,15 @@ func (p *Program) runP2PClient() {
 				p.Logger.Printf("Failed to load credentials: %v", err)
 				p.Logger.Println("Please run P2P setup first: etc-scraper.exe -p2p-setup")
 				p.Logger.Println("Service will keep running and retry periodically...")
-				if p.logFile != nil {
-					p.logFile.WriteString("[DEBUG] No credentials, waiting for setup...\n")
-					p.logFile.Sync()
-				}
-				// Don't return - wait for context cancellation instead
-				// This keeps the service alive even without credentials
 				<-p.ctx.Done()
 				return
 			}
 		}
 	}
 
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] Creating P2P event handler...\n")
-		p.logFile.Sync()
-	}
-
 	// Create event handler
 	handler := &serviceP2PEventHandler{
 		program: p,
-	}
-
-	if p.logFile != nil {
-		p.logFile.WriteString("[DEBUG] Creating P2P client...\n")
-		p.logFile.Sync()
 	}
 
 	p.p2pClient = p2p.NewClient(&p2p.ClientConfig{
@@ -391,40 +324,16 @@ func (p *Program) runP2PClient() {
 	maxRetryDelay := 60 * time.Second
 
 	for {
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Attempting to connect to signaling server...\n")
-			p.logFile.Sync()
-		}
-
 		// Connect to signaling server in a goroutine
 		connectDone := make(chan error, 1)
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Launching connect goroutine...\n")
-			p.logFile.Sync()
-		}
 		go func() {
-			if p.logFile != nil {
-				p.logFile.WriteString("[DEBUG] Connect goroutine started\n")
-				p.logFile.Sync()
-			}
 			defer func() {
 				if r := recover(); r != nil {
-					if p.logFile != nil {
-						p.logFile.WriteString(fmt.Sprintf("[PANIC] p2pClient.Connect recovered: %v\n", r))
-						p.logFile.Sync()
-					}
+					p.Logger.Printf("P2P connect panic recovered: %v", r)
 					connectDone <- fmt.Errorf("panic: %v", r)
 				}
 			}()
-			if p.logFile != nil {
-				p.logFile.WriteString("[DEBUG] Calling p2pClient.Connect()...\n")
-				p.logFile.Sync()
-			}
 			err := p.p2pClient.Connect(p.ctx)
-			if p.logFile != nil {
-				p.logFile.WriteString(fmt.Sprintf("[DEBUG] p2pClient.Connect() returned: %v\n", err))
-				p.logFile.Sync()
-			}
 			connectDone <- err
 		}()
 
@@ -436,20 +345,12 @@ func (p *Program) runP2PClient() {
 		case <-time.After(30 * time.Second):
 			connectErr = fmt.Errorf("connection timeout (30s)")
 		case <-p.ctx.Done():
-			if p.logFile != nil {
-				p.logFile.WriteString("[DEBUG] Context cancelled, shutting down P2P client\n")
-				p.logFile.Sync()
-			}
 			p.Logger.Println("P2P client shutting down...")
 			return
 		}
 
 		if connectErr != nil {
 			p.Logger.Printf("P2P connection failed: %v, retrying in %v...", connectErr, retryDelay)
-			if p.logFile != nil {
-				p.logFile.WriteString(fmt.Sprintf("[DEBUG] Connect error: %v, retry in %v\n", connectErr, retryDelay))
-				p.logFile.Sync()
-			}
 
 			// Wait before retry, but check for context cancellation
 			select {
@@ -474,50 +375,22 @@ func (p *Program) runP2PClient() {
 				})
 				continue
 			case <-p.ctx.Done():
-				if p.logFile != nil {
-					p.logFile.WriteString("[DEBUG] Context cancelled during retry wait\n")
-					p.logFile.Sync()
-				}
 				p.Logger.Println("P2P client shutting down...")
 				return
 			}
 		}
 
-		// Connected successfully!
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Connected successfully!\n")
-			p.logFile.Sync()
-		}
-
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] About to get appID...\n")
-			p.logFile.Sync()
-		}
-
+		// Connected successfully
 		appID := ""
 		if p.p2pClient != nil {
 			appID = p.p2pClient.GetAppID()
 		}
 
-		if p.logFile != nil {
-			p.logFile.WriteString(fmt.Sprintf("[DEBUG] appID=%s\n", appID))
-			p.logFile.Sync()
-		}
-
 		p.Logger.Printf("Connected to signaling server, appID: %s", appID)
 		p.Logger.Println("Waiting for browser connection...")
 
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Entering wait loop for ctx.Done()...\n")
-			p.logFile.Sync()
-		}
-
 		// Wait for context cancellation (this keeps the service alive)
 		<-p.ctx.Done()
-		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Context cancelled, shutting down P2P client\n")
-			p.logFile.Sync()
-		}
 		p.Logger.Println("P2P client shutting down...")
 		return
 	}
