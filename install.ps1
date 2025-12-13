@@ -80,7 +80,10 @@ try {
     # Install binaries
     Write-Host "Installing to $InstallDir..."
     Copy-Item -Path (Join-Path $TmpDir $BinaryName) -Destination $InstallDir -Force
-    Copy-Item -Path (Join-Path $TmpDir $UpdaterBinaryName) -Destination $InstallDir -Force
+    $UpdaterSrc = Join-Path $TmpDir $UpdaterBinaryName
+    if (Test-Path $UpdaterSrc) {
+        Copy-Item -Path $UpdaterSrc -Destination $InstallDir -Force
+    }
 
     # Verify
     $ExePath = Join-Path $InstallDir $BinaryName
