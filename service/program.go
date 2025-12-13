@@ -211,10 +211,11 @@ func (p *Program) run() {
 	// Check for updates at startup
 	if p.AutoUpdate {
 		if p.logFile != nil {
-			p.logFile.WriteString("[DEBUG] Starting auto-update...\n")
+			p.logFile.WriteString("[DEBUG] Auto-update DISABLED for debugging\n")
 			p.logFile.Sync()
 		}
-		p.startAutoUpdate()
+		// DISABLED FOR DEBUGGING
+		// p.startAutoUpdate()
 	}
 
 	if p.logFile != nil {
@@ -397,7 +398,15 @@ func (p *Program) runP2PClient() {
 
 		// Connect to signaling server in a goroutine
 		connectDone := make(chan error, 1)
+		if p.logFile != nil {
+			p.logFile.WriteString("[DEBUG] Launching connect goroutine...\n")
+			p.logFile.Sync()
+		}
 		go func() {
+			if p.logFile != nil {
+				p.logFile.WriteString("[DEBUG] Connect goroutine started\n")
+				p.logFile.Sync()
+			}
 			defer func() {
 				if r := recover(); r != nil {
 					if p.logFile != nil {
@@ -407,7 +416,16 @@ func (p *Program) runP2PClient() {
 					connectDone <- fmt.Errorf("panic: %v", r)
 				}
 			}()
-			connectDone <- p.p2pClient.Connect(p.ctx)
+			if p.logFile != nil {
+				p.logFile.WriteString("[DEBUG] Calling p2pClient.Connect()...\n")
+				p.logFile.Sync()
+			}
+			err := p.p2pClient.Connect(p.ctx)
+			if p.logFile != nil {
+				p.logFile.WriteString(fmt.Sprintf("[DEBUG] p2pClient.Connect() returned: %v\n", err))
+				p.logFile.Sync()
+			}
+			connectDone <- err
 		}()
 
 		// Wait for connection with timeout
@@ -471,8 +489,28 @@ func (p *Program) runP2PClient() {
 			p.logFile.Sync()
 		}
 
-		p.Logger.Printf("Connected to signaling server, appID: %s", p.p2pClient.GetAppID())
+		if p.logFile != nil {
+			p.logFile.WriteString("[DEBUG] About to get appID...\n")
+			p.logFile.Sync()
+		}
+
+		appID := ""
+		if p.p2pClient != nil {
+			appID = p.p2pClient.GetAppID()
+		}
+
+		if p.logFile != nil {
+			p.logFile.WriteString(fmt.Sprintf("[DEBUG] appID=%s\n", appID))
+			p.logFile.Sync()
+		}
+
+		p.Logger.Printf("Connected to signaling server, appID: %s", appID)
 		p.Logger.Println("Waiting for browser connection...")
+
+		if p.logFile != nil {
+			p.logFile.WriteString("[DEBUG] Entering wait loop for ctx.Done()...\n")
+			p.logFile.Sync()
+		}
 
 		// Wait for context cancellation (this keeps the service alive)
 		<-p.ctx.Done()

@@ -66,6 +66,8 @@ func NewClient(config *ClientConfig) *Client {
 
 // Connect connects to signaling server and waits for WebRTC connection
 func (c *Client) Connect(ctx context.Context) (err error) {
+	c.logger.Printf("[DEBUG-CLI] Connect() ENTRY")
+
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
@@ -74,11 +76,17 @@ func (c *Client) Connect(ctx context.Context) (err error) {
 		}
 	}()
 
+	c.logger.Printf("[DEBUG-CLI] Client.Connect() started, about to lock mutex")
+
 	c.mu.Lock()
+	c.logger.Printf("[DEBUG-CLI] Mutex locked, creating context")
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.mu.Unlock()
+	c.logger.Printf("[DEBUG-CLI] Mutex unlocked")
 
-	c.logger.Printf("Starting P2P client...")
+	c.logger.Printf("[DEBUG-CLI] Context created, creating SignalingClient...")
+	c.logger.Printf("[DEBUG-CLI] SignalingURL=%s", c.config.SignalingURL)
+	c.logger.Printf("[DEBUG-CLI] APIKey length=%d", len(c.config.APIKey))
 
 	// Create signaling client with clientEventAdapter as the event handler
 	c.signaling = NewSignalingClient(SignalingConfig{
@@ -89,11 +97,16 @@ func (c *Client) Connect(ctx context.Context) (err error) {
 		Handler:      &signalingEventAdapter{client: c},
 	})
 
+	c.logger.Printf("[DEBUG-CLI] SignalingClient created successfully")
+	c.logger.Printf("[DEBUG-CLI] About to call signaling.Connect()...")
+
 	// Connect to signaling server
 	if err := c.signaling.Connect(c.ctx); err != nil {
+		c.logger.Printf("[DEBUG-CLI] signaling.Connect() failed: %v", err)
 		return fmt.Errorf("failed to connect to signaling server: %w", err)
 	}
 
+	c.logger.Printf("[DEBUG-CLI] signaling.Connect() succeeded")
 	c.logger.Printf("Connected to signaling server, waiting for browser connection...")
 	return nil
 }

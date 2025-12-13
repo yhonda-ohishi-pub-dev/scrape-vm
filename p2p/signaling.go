@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"sync"
 	"time"
@@ -60,36 +61,56 @@ func NewSignalingClient(config SignalingConfig) *SignalingClient {
 
 // Connect establishes WebSocket connection and authenticates
 func (c *SignalingClient) Connect(ctx context.Context) (err error) {
+	log.Printf("[DEBUG-SIG] Connect() ENTRY")
+
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
+			log.Printf("[DEBUG-SIG] PANIC recovered: %v", r)
 			err = fmt.Errorf("panic in SignalingClient.Connect: %v", r)
 		}
 	}()
 
+	log.Printf("[DEBUG-SIG] SignalingClient.Connect() started, about to lock mutex")
+
 	c.mu.Lock()
+	log.Printf("[DEBUG-SIG] Mutex locked, checking isConnected=%v", c.isConnected)
 	if c.isConnected {
 		c.mu.Unlock()
+		log.Printf("[DEBUG-SIG] Already connected, returning")
 		return nil
 	}
 
+	log.Printf("[DEBUG-SIG] Creating context with cancel")
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.mu.Unlock()
+	log.Printf("[DEBUG-SIG] Mutex unlocked")
+
+	log.Printf("[DEBUG-SIG] Context created, parsing URL...")
 
 	// Build URL with API key
 	u, err := url.Parse(c.config.ServerURL)
 	if err != nil {
+		log.Printf("[DEBUG-SIG] URL parse error: %v", err)
 		return fmt.Errorf("invalid server URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("apiKey", c.config.APIKey)
 	u.RawQuery = q.Encode()
 
+	log.Printf("[DEBUG-SIG] Attempting WebSocket dial to: %s", c.config.ServerURL)
+
 	// Connect WebSocket
-	conn, _, err := websocket.DefaultDialer.DialContext(c.ctx, u.String(), nil)
+	conn, resp, err := websocket.DefaultDialer.DialContext(c.ctx, u.String(), nil)
 	if err != nil {
+		if resp != nil {
+			log.Printf("[DEBUG-SIG] WebSocket dial failed: %v, HTTP status: %d", err, resp.StatusCode)
+		} else {
+			log.Printf("[DEBUG-SIG] WebSocket dial failed: %v (no HTTP response)", err)
+		}
 		return fmt.Errorf("websocket dial failed: %w", err)
 	}
+	log.Printf("[DEBUG-SIG] WebSocket connected successfully")
 
 	c.mu.Lock()
 	c.conn = conn
@@ -215,7 +236,9 @@ func (c *SignalingClient) sendMessage(msgType string, payload interface{}, reque
 }
 
 func (c *SignalingClient) readPump() {
+	log.Printf("[DEBUG-SIG] readPump() started")
 	defer func() {
+		log.Printf("[DEBUG-SIG] readPump() exiting, calling OnDisconnected")
 		c.mu.Lock()
 		c.isConnected = false
 		c.isAuthenticated = false
@@ -228,6 +251,7 @@ func (c *SignalingClient) readPump() {
 	for {
 		select {
 		case <-c.ctx.Done():
+			log.Printf("[DEBUG-SIG] readPump(): context done, returning")
 			return
 		default:
 		}
@@ -236,11 +260,13 @@ func (c *SignalingClient) readPump() {
 		conn := c.conn
 		c.mu.RUnlock()
 		if conn == nil {
+			log.Printf("[DEBUG-SIG] readPump(): conn is nil, returning")
 			return
 		}
 
 		_, message, err := conn.ReadMessage()
 		if err != nil {
+			log.Printf("[DEBUG-SIG] readPump(): ReadMessage error: %v", err)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				if c.config.Handler != nil {
 					c.config.Handler.OnError(fmt.Sprintf("websocket error: %v", err))
@@ -249,6 +275,7 @@ func (c *SignalingClient) readPump() {
 			return
 		}
 
+		log.Printf("[DEBUG-SIG] readPump(): received message (%d bytes)", len(message))
 		c.handleMessage(message)
 	}
 }
