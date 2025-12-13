@@ -65,7 +65,15 @@ func NewClient(config *ClientConfig) *Client {
 }
 
 // Connect connects to signaling server and waits for WebRTC connection
-func (c *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context) (err error) {
+	// Recover from panic
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in Connect: %v", r)
+			c.logger.Printf("PANIC recovered: %v", r)
+		}
+	}()
+
 	c.mu.Lock()
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.mu.Unlock()

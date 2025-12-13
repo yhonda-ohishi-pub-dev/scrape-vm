@@ -59,7 +59,14 @@ func NewSignalingClient(config SignalingConfig) *SignalingClient {
 }
 
 // Connect establishes WebSocket connection and authenticates
-func (c *SignalingClient) Connect(ctx context.Context) error {
+func (c *SignalingClient) Connect(ctx context.Context) (err error) {
+	// Recover from panic
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in SignalingClient.Connect: %v", r)
+		}
+	}()
+
 	c.mu.Lock()
 	if c.isConnected {
 		c.mu.Unlock()
