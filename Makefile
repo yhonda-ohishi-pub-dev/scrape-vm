@@ -7,6 +7,7 @@ VM_ZONE := asia-northeast1-b
 # ビルド設定
 BINARY_LINUX := etc-scraper-linux
 BINARY_WIN := etc-scraper.exe
+UPDATER_WIN := etc-scraper-updater.exe
 
 # バージョン情報（タグから取得、なければdev）
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -19,7 +20,7 @@ LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.GitCommit=$(GIT_COMMIT) -X m
 # PowerShell command
 PS := powershell -ExecutionPolicy Bypass
 
-.PHONY: all build build-linux build-windows deploy ssh tunnel health clean help version release release-zip
+.PHONY: all build build-linux build-windows build-updater deploy ssh tunnel health clean help version release release-zip
 
 # デフォルト
 all: deploy
@@ -34,8 +35,13 @@ build-windows:
 	@echo "=== Building for Windows ($(VERSION)) ==="
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BINARY_WIN) .
 
+# Windows用Updaterビルド
+build-updater:
+	@echo "=== Building Updater for Windows ($(VERSION)) ==="
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(UPDATER_WIN) ./cmd/updater/
+
 # 両方ビルド
-build: build-linux build-windows
+build: build-linux build-windows build-updater
 
 # バージョン表示
 version:
@@ -43,10 +49,10 @@ version:
 	@echo "Commit:  $(GIT_COMMIT)"
 	@echo "Build:   $(BUILD_TIME)"
 
-# リリース用zip作成
-release-zip: build-windows
+# リリース用zip作成（メインバイナリ + Updater）
+release-zip: build-windows build-updater
 	@echo "=== Creating release zip ==="
-	$(PS) -Command "Compress-Archive -Path '$(BINARY_WIN)' -DestinationPath 'etc-scraper_$(VERSION)_windows_amd64.zip' -Force"
+	$(PS) -Command "Compress-Archive -Path '$(BINARY_WIN)','$(UPDATER_WIN)' -DestinationPath 'etc-scraper_$(VERSION)_windows_amd64.zip' -Force"
 	@echo "Created: etc-scraper_$(VERSION)_windows_amd64.zip"
 
 # GitHub Release作成（タグ必須）
@@ -74,15 +80,16 @@ health:
 
 # クリーンアップ
 clean:
-	rm -f $(BINARY_LINUX) $(BINARY_WIN) *.zip
+	rm -f $(BINARY_LINUX) $(BINARY_WIN) $(UPDATER_WIN) *.zip
 
 # ヘルプ
 help:
 	@echo "Usage:"
 	@echo "  make deploy      - Build and deploy to VM (uses deploy.ps1)"
-	@echo "  make build       - Build both binaries with version info"
+	@echo "  make build       - Build all binaries with version info"
 	@echo "  make build-windows - Build Windows binary only"
 	@echo "  make build-linux - Build Linux binary only"
+	@echo "  make build-updater - Build Windows updater binary"
 	@echo "  make version     - Show version info"
 	@echo "  make release-zip - Build and create release zip"
 	@echo "  make release     - Create GitHub release (requires tag)"
@@ -100,3 +107,9 @@ help:
 	@echo "Updates:"
 	@echo "  etc-scraper.exe -check-update      - Check for updates"
 	@echo "  etc-scraper.exe -version           - Show version"
+	@echo ""
+	@echo "Auto-Updater Service (run as Administrator):"
+	@echo "  etc-scraper-updater.exe -service install   - Install updater service"
+	@echo "  etc-scraper-updater.exe -service start     - Start updater service"
+	@echo "  etc-scraper-updater.exe -service stop      - Stop updater service"
+	@echo "  etc-scraper-updater.exe -service uninstall - Uninstall updater service"

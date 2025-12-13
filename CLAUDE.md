@@ -43,6 +43,12 @@ P2P_API_KEY=xxx ./etc-scraper.exe -p2p
 ./etc-scraper.exe -version
 ./etc-scraper.exe -check-update
 
+# 自動更新サービス（別バイナリ）
+./etc-scraper-updater.exe -service install   # サービス登録
+./etc-scraper-updater.exe -service start     # サービス開始
+./etc-scraper-updater.exe -service stop      # サービス停止
+./etc-scraper-updater.exe -service uninstall # サービス削除
+
 # VMへデプロイ
 make deploy
 # または
@@ -69,10 +75,14 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
   - `manager.go` - サービス管理コマンド
   - `grpc_impl.go` - サービス用gRPC実装
 
-- **updater/** - 自動更新機能
+- **updater/** - 自動更新機能（共有ライブラリ）
   - `config.go` - 更新設定（リポジトリ情報、チェック間隔）
   - `updater.go` - GitHub Release更新チェック・ダウンロード
   - `restart.go` - サービス再起動処理
+
+- **cmd/updater/** - 自動更新サービス（別バイナリ）
+  - `main.go` - etc-scraper-updater.exe のエントリーポイント
+  - メインサービスを監視・更新するWindowsサービス
 
 - **p2p/** - P2P通信実装（WebRTC + Cloudflare Workers）
   - `signaling.go` - WebSocketシグナリングクライアント
@@ -126,12 +136,18 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - 管理者権限が必要
 - サービスは`C:\Windows\System32`で動作するため、パスは絶対パス指定推奨
 
-### 自動更新
+### 自動更新（etc-scraper-updater.exe）
+- **別バイナリ方式**: 更新サービスはメインバイナリとは別の実行ファイル
 - creativeprojects/go-selfupdateライブラリ使用
 - GitHubリポジトリ: `yhonda-ohishi-pub-dev/scrape-vm`
 - デフォルトチェック間隔: 1時間
-- 更新検出時: ダウンロード → サービス自動再起動
-- バイナリ命名規則: `etc-scraper_v1.x.x_windows_amd64.zip`
+- 更新フロー:
+  1. etc-scraper-updater がGitHub Releaseをチェック
+  2. 更新があれば etc-scraper サービスを停止
+  3. etc-scraper.exe を新バージョンで置換
+  4. etc-scraper サービスを再起動
+- バイナリ命名規則: `etc-scraper_v1.x.x_windows_amd64.zip`（両バイナリ含む）
+- サービス名: `etc-scraper-updater`
 
 ## 注意事項
 

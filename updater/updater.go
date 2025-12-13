@@ -67,14 +67,18 @@ func (u *Updater) CheckForUpdate(ctx context.Context) (*selfupdate.Release, bool
 	return latest, true, nil
 }
 
-// Update downloads and applies the update
+// Update downloads and applies the update to the current executable
 func (u *Updater) Update(ctx context.Context, release *selfupdate.Release) error {
-	u.logger.Printf("Downloading update %s...", release.Version())
-
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
+	return u.UpdateTo(ctx, release, exe)
+}
+
+// UpdateTo downloads and applies the update to the specified target path
+func (u *Updater) UpdateTo(ctx context.Context, release *selfupdate.Release, targetPath string) error {
+	u.logger.Printf("Downloading update %s to %s...", release.Version(), targetPath)
 
 	source, err := selfupdate.NewGitHubSource(selfupdate.GitHubConfig{})
 	if err != nil {
@@ -88,7 +92,7 @@ func (u *Updater) Update(ctx context.Context, release *selfupdate.Release) error
 		return fmt.Errorf("failed to create updater: %w", err)
 	}
 
-	if err := updater.UpdateTo(ctx, release, exe); err != nil {
+	if err := updater.UpdateTo(ctx, release, targetPath); err != nil {
 		return fmt.Errorf("failed to update: %w", err)
 	}
 

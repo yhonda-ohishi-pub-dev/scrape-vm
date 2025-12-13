@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $Repo = "yhonda-ohishi-pub-dev/scrape-vm"
 $InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { "$env:LOCALAPPDATA\etc-scraper" }
 $BinaryName = "etc-scraper.exe"
+$UpdaterBinaryName = "etc-scraper-updater.exe"
 $InstallService = $env:INSTALL_SERVICE -eq "true"
 
 Write-Host "=== ETC Scraper Installer ===" -ForegroundColor Green
@@ -34,11 +35,19 @@ Write-Host "Latest version: $LatestTag"
 # Download URL
 $DownloadUrl = "https://github.com/$Repo/releases/download/$LatestTag/etc-scraper_${LatestTag}_windows_amd64.zip"
 
-# Stop existing service and processes
+# Stop existing services and processes
 $ExistingExe = Join-Path $InstallDir $BinaryName
+$ExistingUpdater = Join-Path $InstallDir $UpdaterBinaryName
 if (Test-Path $ExistingExe) {
-    Write-Host "Stopping existing service..." -ForegroundColor Yellow
+    Write-Host "Stopping existing services..." -ForegroundColor Yellow
     $ErrorActionPreference = "SilentlyContinue"
+    # Stop updater service first
+    if (Test-Path $ExistingUpdater) {
+        & $ExistingUpdater -service stop 2>&1 | Out-Null
+        Start-Sleep -Seconds 1
+        & $ExistingUpdater -service uninstall 2>&1 | Out-Null
+    }
+    # Stop main service
     & $ExistingExe -service stop 2>&1 | Out-Null
     Start-Sleep -Seconds 2
     & $ExistingExe -service uninstall 2>&1 | Out-Null
@@ -46,6 +55,7 @@ if (Test-Path $ExistingExe) {
     $ErrorActionPreference = "Stop"
 }
 Stop-Process -Name "etc-scraper" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "etc-scraper-updater" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
 # Create install directory
@@ -67,9 +77,10 @@ try {
     Write-Host "Extracting..."
     Expand-Archive -Path $ZipPath -DestinationPath $TmpDir -Force
 
-    # Install
+    # Install binaries
     Write-Host "Installing to $InstallDir..."
     Copy-Item -Path (Join-Path $TmpDir $BinaryName) -Destination $InstallDir -Force
+    Copy-Item -Path (Join-Path $TmpDir $UpdaterBinaryName) -Destination $InstallDir -Force
 
     # Verify
     $ExePath = Join-Path $InstallDir $BinaryName
@@ -112,7 +123,7 @@ try {
             Write-Host "P2P credentials saved!" -ForegroundColor Green
         }
 
-        # Install service
+        # Install main service
         Write-Host ""
         Write-Host "Installing Windows Service..." -ForegroundColor Cyan
         & $ExePath -service install
@@ -126,6 +137,25 @@ try {
             }
         } else {
             Write-Host "Failed to install service." -ForegroundColor Red
+        }
+
+        # Install auto-updater service
+        $UpdaterPath = Join-Path $InstallDir $UpdaterBinaryName
+        if (Test-Path $UpdaterPath) {
+            Write-Host ""
+            Write-Host "Installing Auto-Updater Service..." -ForegroundColor Cyan
+            & $UpdaterPath -service install
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Starting updater service..." -ForegroundColor Cyan
+                & $UpdaterPath -service start
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Auto-Updater service installed and started!" -ForegroundColor Green
+                } else {
+                    Write-Host "Auto-Updater service installed but failed to start." -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "Failed to install auto-updater service." -ForegroundColor Yellow
+            }
         }
     }
 
