@@ -38,10 +38,12 @@ $DownloadUrl = "https://github.com/$Repo/releases/download/$LatestTag/etc-scrape
 $ExistingExe = Join-Path $InstallDir $BinaryName
 if (Test-Path $ExistingExe) {
     Write-Host "Stopping existing service..." -ForegroundColor Yellow
-    & $ExistingExe -service stop 2>$null
+    $ErrorActionPreference = "SilentlyContinue"
+    & $ExistingExe -service stop 2>&1 | Out-Null
     Start-Sleep -Seconds 2
-    & $ExistingExe -service uninstall 2>$null
+    & $ExistingExe -service uninstall 2>&1 | Out-Null
     Start-Sleep -Seconds 1
+    $ErrorActionPreference = "Stop"
 }
 Stop-Process -Name "etc-scraper" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
