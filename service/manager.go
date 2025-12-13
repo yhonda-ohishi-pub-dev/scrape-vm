@@ -48,7 +48,31 @@ func NewManager(prg *Program) (*Manager, error) {
 
 // buildServiceArgs builds the command line arguments for the service
 func buildServiceArgs(prg *Program) []string {
-	args := []string{"-grpc", "-port=" + prg.GRPCPort}
+	var args []string
+
+	// Use P2P mode by default for service
+	if prg.P2PMode {
+		args = append(args, "-p2p")
+		if prg.P2PURL != "" {
+			args = append(args, "-p2p-url="+prg.P2PURL)
+		}
+		if prg.P2PAPIKey != "" {
+			args = append(args, "-p2p-apikey="+prg.P2PAPIKey)
+		}
+		if prg.P2PAppName != "" {
+			args = append(args, "-p2p-name="+prg.P2PAppName)
+		}
+		// Use absolute path for credentials file
+		credsFile := prg.P2PCredsFile
+		if !filepath.IsAbs(credsFile) {
+			if absPath, err := filepath.Abs(credsFile); err == nil {
+				credsFile = absPath
+			}
+		}
+		args = append(args, "-p2p-creds="+credsFile)
+	} else {
+		args = append(args, "-grpc", "-port="+prg.GRPCPort)
+	}
 
 	// Use absolute path for download directory
 	downloadPath := prg.DownloadPath
