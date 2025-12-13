@@ -45,7 +45,7 @@ func main() {
 
 	// 自動更新フラグ
 	checkUpdate := flag.Bool("check-update", false, "Check for updates and exit")
-	autoUpdate := flag.Bool("auto-update", true, "Enable automatic updates")
+	autoUpdate := flag.Bool("auto-update", false, "Enable automatic updates (disabled by default for stability)")
 	updateInterval := flag.String("update-interval", "1h", "Update check interval (e.g., 1h, 30m)")
 
 	// バージョン表示
@@ -77,6 +77,12 @@ func main() {
 			Version:        Version,
 			AutoUpdate:     *autoUpdate,
 			UpdateInterval: *updateInterval,
+			// P2P settings - service runs in P2P mode by default
+			P2PMode:      true,
+			P2PURL:       *p2pURL,
+			P2PAPIKey:    *p2pAPIKey,
+			P2PAppName:   *p2pAppName,
+			P2PCredsFile: *p2pCredsFile,
 		}
 
 		if err := myservice.RunServiceCommand(*serviceCmd, prg, logger); err != nil {
@@ -87,7 +93,8 @@ func main() {
 
 	// サービスとして起動されているか確認
 	if isRunningAsService() {
-		runAsService(logger, *grpcPort, *downloadPath, *headless, *autoUpdate, *updateInterval)
+		runAsService(logger, *grpcPort, *downloadPath, *headless, *autoUpdate, *updateInterval,
+			*p2pURL, *p2pAPIKey, *p2pAppName, *p2pCredsFile)
 		return
 	}
 
@@ -145,7 +152,8 @@ func isRunningAsService() bool {
 }
 
 // runAsService runs the application as a Windows service
-func runAsService(logger *log.Logger, port, downloadPath string, headless, autoUpdate bool, updateInterval string) {
+func runAsService(logger *log.Logger, port, downloadPath string, headless, autoUpdate bool, updateInterval string,
+	p2pURL, p2pAPIKey, p2pAppName, p2pCredsFile string) {
 	prg := &myservice.Program{
 		Logger:         logger,
 		GRPCPort:       port,
@@ -154,6 +162,12 @@ func runAsService(logger *log.Logger, port, downloadPath string, headless, autoU
 		Version:        Version,
 		AutoUpdate:     autoUpdate,
 		UpdateInterval: updateInterval,
+		// P2P settings - service runs in P2P mode by default
+		P2PMode:      true,
+		P2PURL:       p2pURL,
+		P2PAPIKey:    p2pAPIKey,
+		P2PAppName:   p2pAppName,
+		P2PCredsFile: p2pCredsFile,
 	}
 
 	if err := myservice.RunServiceCommand("run", prg, logger); err != nil {

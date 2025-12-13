@@ -141,17 +141,24 @@ func (p *Program) run() {
 	p.wg.Add(1)
 	defer p.wg.Done()
 
+	// Loggerがnilの場合はlogFileから作成（recoverより先に実行）
+	if p.Logger == nil {
+		if p.logFile != nil {
+			p.Logger = log.New(p.logFile, "[SCRAPER] ", log.LstdFlags)
+		} else {
+			// 最後の手段: stderrに出力
+			p.Logger = log.New(os.Stderr, "[SCRAPER] ", log.LstdFlags)
+		}
+	}
+
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
-			p.Logger.Printf("run() panic recovered: %v", r)
+			if p.Logger != nil {
+				p.Logger.Printf("run() panic recovered: %v", r)
+			}
 		}
 	}()
-
-	// Loggerがnilの場合はlogFileから作成
-	if p.Logger == nil && p.logFile != nil {
-		p.Logger = log.New(p.logFile, "[SCRAPER] ", log.LstdFlags)
-	}
 
 	// Resolve download path to absolute path if relative
 	if !filepath.IsAbs(p.DownloadPath) {
