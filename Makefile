@@ -50,9 +50,10 @@ version:
 	@echo "Build:   $(BUILD_TIME)"
 
 # リリース用zip作成（メインバイナリ + Updater）
+# Note: Compress-Archive has bugs with large files, use .NET ZipFile instead
 release-zip: build-windows build-updater
 	@echo "=== Creating release zip ==="
-	$(PS) -Command "Compress-Archive -Path '$(BINARY_WIN)','$(UPDATER_WIN)' -DestinationPath 'etc-scraper_$(VERSION)_windows_amd64.zip' -Force"
+	$(PS) -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $$tmp='zip_temp'; if(Test-Path $$tmp){Remove-Item -Recurse -Force $$tmp}; New-Item -ItemType Directory -Force $$tmp | Out-Null; Copy-Item '$(BINARY_WIN)','$(UPDATER_WIN)' $$tmp; $$zip='etc-scraper_$(VERSION)_windows_amd64.zip'; if(Test-Path $$zip){Remove-Item -Force $$zip}; [IO.Compression.ZipFile]::CreateFromDirectory($$tmp, $$zip, 'Optimal', $$false); Remove-Item -Recurse -Force $$tmp"
 	@echo "Created: etc-scraper_$(VERSION)_windows_amd64.zip"
 
 # GitHub Release作成（タグ必須）

@@ -116,6 +116,8 @@ powershell -ExecutionPolicy Bypass -File deploy.ps1
 - クレデンシャルファイル: `p2p_credentials.env`
 - メッセージ形式: JSON（type, payload）
 - 対応コマンド: `ping`, `health`, `scrape`, `get_files`
+- **サーバー側リポジトリ**: https://github.com/yhonda-ohishi/cf-wbrtc-auth
+- トークンリフレッシュ: `/api/app/refresh` エンドポイント（Bearer: refresh_token）
 
 ### アカウント形式
 - カンマ区切り: `user1:pass1,user2:pass2`
