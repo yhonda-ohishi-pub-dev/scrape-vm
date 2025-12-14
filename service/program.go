@@ -26,6 +26,96 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// JobState tracks the current scraping job state for the service
+type JobState struct {
+	mu                sync.RWMutex
+	IsRunning         bool
+	StartedAt         time.Time
+	TotalAccounts     int
+	CompletedAccounts int
+	SuccessCount      int
+	FailCount         int
+	CurrentAccount    string
+	LastError         string
+	LastSessionFolder string
+}
+
+// StartJob initializes a new job
+func (j *JobState) StartJob(totalAccounts int, sessionFolder string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.IsRunning = true
+	j.StartedAt = time.Now()
+	j.TotalAccounts = totalAccounts
+	j.CompletedAccounts = 0
+	j.SuccessCount = 0
+	j.FailCount = 0
+	j.CurrentAccount = ""
+	j.LastError = ""
+	j.LastSessionFolder = sessionFolder
+}
+
+// SetCurrentAccount sets the current account being processed
+func (j *JobState) SetCurrentAccount(account string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if len(account) > 4 {
+		j.CurrentAccount = account[:4] + "****"
+	} else {
+		j.CurrentAccount = account
+	}
+}
+
+// AccountSuccess increments success count
+func (j *JobState) AccountSuccess() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.CompletedAccounts++
+	j.SuccessCount++
+	j.CurrentAccount = ""
+}
+
+// AccountFailed increments fail count and records error
+func (j *JobState) AccountFailed(err string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.CompletedAccounts++
+	j.FailCount++
+	j.LastError = err
+	j.CurrentAccount = ""
+}
+
+// FinishJob marks the job as completed
+func (j *JobState) FinishJob() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.IsRunning = false
+	j.CurrentAccount = ""
+}
+
+// GetJobStatus returns a copy of current job status for HealthResponse
+func (j *JobState) GetJobStatus() *pb.JobStatus {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return &pb.JobStatus{
+		IsRunning:         j.IsRunning,
+		StartedAt:         j.StartedAt.Format(time.RFC3339),
+		TotalAccounts:     int32(j.TotalAccounts),
+		CompletedAccounts: int32(j.CompletedAccounts),
+		SuccessCount:      int32(j.SuccessCount),
+		FailCount:         int32(j.FailCount),
+		CurrentAccount:    j.CurrentAccount,
+		LastError:         j.LastError,
+	}
+}
+
+// GetLastSessionFolder returns the last session folder
+func (j *JobState) GetLastSessionFolder() string {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.LastSessionFolder
+}
+
 // Program implements service.Interface for Windows service
 type Program struct {
 	Logger       *log.Logger
@@ -52,6 +142,7 @@ type Program struct {
 	p2pClient  *p2p.Client
 	updater    *updater.Updater
 	logFile    *os.File // ログファイルハンドル（サービス終了時にクローズ）
+	jobState   *JobState // Job state for tracking scraping progress
 }
 
 // Start is called when the service starts
@@ -173,6 +264,9 @@ func (p *Program) run() {
 	if err := os.MkdirAll(p.DownloadPath, 0755); err != nil {
 		p.Logger.Printf("Failed to create download directory: %v", err)
 	}
+
+	// Initialize job state
+	p.jobState = &JobState{}
 
 	// Start auto-update if enabled
 	if p.AutoUpdate {
@@ -463,8 +557,10 @@ func (p *Program) setupGRPCWebTransport(dc *webrtc.DataChannel) {
 		},
 		func(ctx context.Context, req *pb.HealthRequest) (*pb.HealthResponse, error) {
 			return &pb.HealthResponse{
-				Healthy: true,
-				Version: server.Version,
+				Healthy:           true,
+				Version:           server.Version,
+				CurrentJob:        p.jobState.GetJobStatus(),
+				LastSessionFolder: p.jobState.GetLastSessionFolder(),
 			}, nil
 		},
 	))
@@ -484,8 +580,21 @@ func (p *Program) setupGRPCWebTransport(dc *webrtc.DataChannel) {
 		func(ctx context.Context, req *pb.ScrapeMultipleRequest) (*pb.ScrapeMultipleResponse, error) {
 			p.Logger.Printf("Received ScrapeMultiple request with %d accounts", len(req.Accounts))
 
+			// Create session folder
+			sessionFolder := filepath.Join(p.DownloadPath, time.Now().Format("20060102_150405"))
+			if err := os.MkdirAll(sessionFolder, 0755); err != nil {
+				p.Logger.Printf("Failed to create session folder: %v", err)
+				return &pb.ScrapeMultipleResponse{
+					SuccessCount: 0,
+					TotalCount:   int32(len(req.Accounts)),
+				}, nil
+			}
+
+			// Start job tracking BEFORE launching goroutine
+			p.jobState.StartJob(len(req.Accounts), sessionFolder)
+
 			// Run scraping in background
-			go p.runScrapeJobPb(req.Accounts)
+			go p.runScrapeJobPb(req.Accounts, sessionFolder)
 
 			return &pb.ScrapeMultipleResponse{
 				SuccessCount: 0,
@@ -650,16 +759,12 @@ func (p *Program) getDownloadedFiles() ([]map[string]interface{}, string) {
 }
 
 // runScrapeJobPb runs scraping in background using Protobuf types
-func (p *Program) runScrapeJobPb(accounts []*pb.Account) {
-	sessionFolder := filepath.Join(p.DownloadPath, time.Now().Format("20060102_150405"))
-	if err := os.MkdirAll(sessionFolder, 0755); err != nil {
-		p.Logger.Printf("Failed to create session folder: %v", err)
-		return
-	}
+func (p *Program) runScrapeJobPb(accounts []*pb.Account, sessionFolder string) {
+	defer p.jobState.FinishJob()
 
-	successCount := 0
 	for i, acc := range accounts {
 		p.Logger.Printf("Processing account %d/%d: %s", i+1, len(accounts), acc.UserId)
+		p.jobState.SetCurrentAccount(acc.UserId)
 
 		config := &scrapers.ScraperConfig{
 			UserID:       acc.UserId,
@@ -672,18 +777,21 @@ func (p *Program) runScrapeJobPb(accounts []*pb.Account) {
 		scraper, err := scrapers.NewETCScraper(config, p.Logger)
 		if err != nil {
 			p.Logger.Printf("ERROR: %s: %v", acc.UserId, err)
+			p.jobState.AccountFailed(err.Error())
 			continue
 		}
 
 		if err := scraper.Initialize(); err != nil {
 			scraper.Close()
 			p.Logger.Printf("ERROR: %s: %v", acc.UserId, err)
+			p.jobState.AccountFailed(err.Error())
 			continue
 		}
 
 		if err := scraper.Login(); err != nil {
 			scraper.Close()
 			p.Logger.Printf("ERROR: %s: %v", acc.UserId, err)
+			p.jobState.AccountFailed(err.Error())
 			continue
 		}
 
@@ -691,6 +799,7 @@ func (p *Program) runScrapeJobPb(accounts []*pb.Account) {
 		scraper.Close()
 		if err != nil {
 			p.Logger.Printf("ERROR: %s: %v", acc.UserId, err)
+			p.jobState.AccountFailed(err.Error())
 			continue
 		}
 
@@ -702,14 +811,15 @@ func (p *Program) runScrapeJobPb(accounts []*pb.Account) {
 			}
 		}
 
-		successCount++
+		p.Logger.Printf("SUCCESS: Account %s -> %s", acc.UserId, csvPath)
+		p.jobState.AccountSuccess()
 
 		if i < len(accounts)-1 {
 			time.Sleep(2 * time.Second)
 		}
 	}
 
-	p.Logger.Printf("Scraping completed: %d/%d accounts succeeded", successCount, len(accounts))
+	p.Logger.Printf("Scraping completed: %d/%d accounts succeeded", p.jobState.SuccessCount, len(accounts))
 }
 
 // getDownloadedFilesPb returns files from the latest session folder using Protobuf types
