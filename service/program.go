@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -281,14 +283,17 @@ func (p *Program) runP2PClient() {
 	p.Logger.Printf("Signaling URL: %s", p.P2PURL)
 	p.Logger.Printf("App name: %s", p.P2PAppName)
 
-	// Load API key from credentials file if not provided
+	// Load API key and refresh token from credentials file if not provided
 	apiKey := p.P2PAPIKey
+	refreshToken := ""
+	credsFile := p.P2PCredsFile
+
 	if apiKey == "" {
 		// Try the provided path first
-		credsFile := p.P2PCredsFile
 		if creds, err := p2p.LoadCredentials(credsFile); err == nil {
 			apiKey = creds.APIKey
-			p.Logger.Printf("Loaded API key from %s", credsFile)
+			refreshToken = creds.RefreshToken
+			p.Logger.Printf("Loaded credentials from %s", credsFile)
 		} else {
 			// Try the executable directory (for Windows service)
 			exePath, _ := os.Executable()
@@ -297,7 +302,8 @@ func (p *Program) runP2PClient() {
 			p.Logger.Printf("Trying credentials from executable dir: %s", credsFile)
 			if creds, err := p2p.LoadCredentials(credsFile); err == nil {
 				apiKey = creds.APIKey
-				p.Logger.Printf("Loaded API key from %s", credsFile)
+				refreshToken = creds.RefreshToken
+				p.Logger.Printf("Loaded credentials from %s", credsFile)
 			} else {
 				p.Logger.Printf("Failed to load credentials: %v", err)
 				p.Logger.Println("Please run P2P setup first: etc-scraper.exe -p2p-setup")
@@ -307,6 +313,10 @@ func (p *Program) runP2PClient() {
 			}
 		}
 	}
+
+	// Extract base server URL from signaling URL for token refresh
+	serverURL := extractServerURL(p.P2PURL)
+	p.Logger.Printf("Server URL for token refresh: %s", serverURL)
 
 	// Create event handler
 	handler := &serviceP2PEventHandler{
@@ -320,6 +330,10 @@ func (p *Program) runP2PClient() {
 		Capabilities: []string{"scrape", "etc"},
 		Logger:       p.Logger,
 		Handler:      handler,
+		// Token refresh settings
+		RefreshToken: refreshToken,
+		ServerURL:    serverURL,
+		CredsFile:    credsFile,
 		OnDataChannelReady: func(dc *webrtc.DataChannel) {
 			p.Logger.Println("DataChannel ready, setting up gRPC-Web transport...")
 			p.setupGRPCWebTransport(dc)
@@ -375,6 +389,10 @@ func (p *Program) runP2PClient() {
 					Capabilities: []string{"scrape", "etc"},
 					Logger:       p.Logger,
 					Handler:      handler,
+					// Token refresh settings
+					RefreshToken: refreshToken,
+					ServerURL:    serverURL,
+					CredsFile:    credsFile,
 					OnDataChannelReady: func(dc *webrtc.DataChannel) {
 						p.Logger.Println("DataChannel ready, setting up gRPC-Web transport...")
 						p.setupGRPCWebTransport(dc)
@@ -621,4 +639,23 @@ func (p *Program) getDownloadedFiles() ([]map[string]interface{}, string) {
 	}
 
 	return result, latestFolder
+}
+
+// extractServerURL extracts the base server URL from a WebSocket URL
+// e.g., wss://example.com/ws/app -> https://example.com
+func extractServerURL(wsURL string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		return ""
+	}
+
+	// Convert ws/wss to http/https
+	scheme := "https"
+	if strings.HasPrefix(u.Scheme, "ws") {
+		if u.Scheme == "ws" {
+			scheme = "http"
+		}
+	}
+
+	return scheme + "://" + u.Host
 }

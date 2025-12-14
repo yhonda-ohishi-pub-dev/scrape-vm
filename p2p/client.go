@@ -47,6 +47,11 @@ type ClientConfig struct {
 	Logger                *log.Logger
 	Handler               ClientEventHandler       // Optional event handler
 	OnDataChannelReady    DataChannelReadyCallback // Called when DataChannel is ready
+	// Token refresh settings
+	RefreshToken     string // Refresh token for auto-refresh
+	ServerURL        string // Base URL for refresh endpoint (e.g., https://example.com)
+	CredsFile        string // Path to credentials file for saving refreshed tokens
+	OnTokenRefreshed func(apiKey, refreshToken string) // Called when token is refreshed
 }
 
 // NewClient creates a new P2P Client
@@ -122,6 +127,14 @@ func (a *signalingEventAdapter) OnAuthenticated(payload AuthOKPayload) {
 
 func (a *signalingEventAdapter) OnAuthError(payload AuthErrorPayload) {
 	a.client.logger.Printf("Auth error: %s", payload.Error)
+
+	// Try to refresh token if refresh token is available
+	if a.client.config.RefreshToken != "" && a.client.config.ServerURL != "" {
+		a.client.logger.Printf("Attempting to refresh API key...")
+		go a.client.tryRefreshToken()
+		return
+	}
+
 	if a.client.handler != nil {
 		a.client.handler.OnP2PError(fmt.Errorf("auth error: %s", payload.Error))
 	}
@@ -394,4 +407,65 @@ func (c *Client) GetConnectionState() string {
 		return "not initialized"
 	}
 	return peer.ConnectionState().String()
+}
+
+// tryRefreshToken attempts to refresh the API key and reconnect
+func (c *Client) tryRefreshToken() {
+	c.logger.Printf("Refreshing API key using refresh token...")
+
+	result, err := RefreshAPIKey(c.ctx, RefreshConfig{
+		ServerURL:    c.config.ServerURL,
+		RefreshToken: c.config.RefreshToken,
+	})
+	if err != nil {
+		c.logger.Printf("Failed to refresh API key: %v", err)
+		if c.handler != nil {
+			c.handler.OnP2PError(fmt.Errorf("token refresh failed: %w", err))
+		}
+		return
+	}
+
+	c.logger.Printf("API key refreshed successfully")
+
+	// Update config with new API key
+	c.config.APIKey = result.APIKey
+	if result.RefreshToken != "" {
+		c.config.RefreshToken = result.RefreshToken
+	}
+
+	// Save new credentials if file path is provided
+	if c.config.CredsFile != "" {
+		if err := SaveCredentials(c.config.CredsFile, result); err != nil {
+			c.logger.Printf("Warning: failed to save refreshed credentials: %v", err)
+		} else {
+			c.logger.Printf("Refreshed credentials saved to %s", c.config.CredsFile)
+		}
+	}
+
+	// Notify callback if set
+	if c.config.OnTokenRefreshed != nil {
+		c.config.OnTokenRefreshed(result.APIKey, result.RefreshToken)
+	}
+
+	// Close current connection and reconnect
+	c.logger.Printf("Reconnecting with new API key...")
+	if c.signaling != nil {
+		c.signaling.Close()
+	}
+
+	// Reconnect with new API key
+	c.signaling = NewSignalingClient(SignalingConfig{
+		ServerURL:    c.config.SignalingURL,
+		APIKey:       c.config.APIKey,
+		AppName:      c.config.AppName,
+		Capabilities: c.config.Capabilities,
+		Handler:      &signalingEventAdapter{client: c},
+	})
+
+	if err := c.signaling.Connect(c.ctx); err != nil {
+		c.logger.Printf("Failed to reconnect after token refresh: %v", err)
+		if c.handler != nil {
+			c.handler.OnP2PError(fmt.Errorf("reconnect failed: %w", err))
+		}
+	}
 }

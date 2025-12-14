@@ -3,6 +3,7 @@ module github.com/scrape-vm
 go 1.24.0
 
 require (
+	github.com/anthropics/cf-wbrtc-auth/go/client v0.0.0
 	github.com/anthropics/cf-wbrtc-auth/go/grpcweb v0.0.0
 	github.com/chromedp/cdproto v0.0.0-20241022234722-4d5d5faf59fb
 	github.com/chromedp/chromedp v0.11.2
@@ -15,6 +16,8 @@ require (
 )
 
 replace github.com/anthropics/cf-wbrtc-auth/go/grpcweb => C:/js/cf-wbrtc-auth/go/grpcweb
+
+replace github.com/anthropics/cf-wbrtc-auth/go/client => C:/js/cf-wbrtc-auth/go/client
 
 require (
 	code.gitea.io/sdk/gitea v0.17.1 // indirect
