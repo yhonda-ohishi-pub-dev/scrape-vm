@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/scrape-vm/scrapers"
@@ -19,12 +20,28 @@ import (
 // Version is set from main package at startup
 var Version = "dev"
 
+// JobStatusGetter is a function type that returns current job status
+type JobStatusGetter func() (*pb.JobStatus, string)
+
 // GRPCServer implements the gRPC service
 type GRPCServer struct {
 	pb.UnimplementedETCScraperServer
-	Logger       *log.Logger
-	DownloadPath string
-	Headless     bool
+	Logger            *log.Logger
+	DownloadPath      string
+	Headless          bool
+	GetJobStatus      JobStatusGetter
+	lastSessionFolder string
+
+	// Internal job state for gRPC mode
+	jobMu             sync.RWMutex
+	isRunning         bool
+	startedAt         time.Time
+	totalAccounts     int
+	completedAccounts int
+	successCount      int
+	failCount         int
+	currentAccount    string
+	lastError         string
 }
 
 // RunGRPCServer starts the gRPC server
@@ -55,10 +72,38 @@ func RunGRPCServer(logger *log.Logger, port, downloadPath string, headless bool)
 // Health implements the Health RPC
 func (s *GRPCServer) Health(ctx context.Context, req *pb.HealthRequest) (*pb.HealthResponse, error) {
 	s.Logger.Println("Health check requested")
-	return &pb.HealthResponse{
-		Healthy: true,
-		Version: Version,
-	}, nil
+	resp := &pb.HealthResponse{
+		Healthy:           true,
+		Version:           Version,
+		LastSessionFolder: s.lastSessionFolder,
+	}
+	if s.GetJobStatus != nil {
+		jobStatus, sessionFolder := s.GetJobStatus()
+		resp.CurrentJob = jobStatus
+		if sessionFolder != "" {
+			resp.LastSessionFolder = sessionFolder
+		}
+	} else {
+		// Use internal job state
+		resp.CurrentJob = s.getInternalJobStatus()
+	}
+	return resp, nil
+}
+
+// getInternalJobStatus returns the internal job status
+func (s *GRPCServer) getInternalJobStatus() *pb.JobStatus {
+	s.jobMu.RLock()
+	defer s.jobMu.RUnlock()
+	return &pb.JobStatus{
+		IsRunning:         s.isRunning,
+		StartedAt:         s.startedAt.Format(time.RFC3339),
+		TotalAccounts:     int32(s.totalAccounts),
+		CompletedAccounts: int32(s.completedAccounts),
+		SuccessCount:      int32(s.successCount),
+		FailCount:         int32(s.failCount),
+		CurrentAccount:    s.currentAccount,
+		LastError:         s.lastError,
+	}
 }
 
 // GetDownloadedFiles implements the GetDownloadedFiles RPC
@@ -171,10 +216,16 @@ func (s *GRPCServer) ScrapeMultiple(ctx context.Context, req *pb.ScrapeMultipleR
 		}, nil
 	}
 
+	// Start job tracking BEFORE launching goroutine
+	s.startJob(len(req.Accounts), sessionFolder)
+
 	// バックグラウンドでスクレイピング実行
 	go func() {
+		defer s.finishJob()
+
 		for i, acc := range req.Accounts {
 			s.Logger.Printf("Processing account %d/%d: %s", i+1, len(req.Accounts), acc.UserId)
+			s.setCurrentAccount(acc.UserId)
 
 			config := &scrapers.ScraperConfig{
 				UserID:       acc.UserId,
@@ -187,9 +238,11 @@ func (s *GRPCServer) ScrapeMultiple(ctx context.Context, req *pb.ScrapeMultipleR
 			csvPath, err := processETCAccountWithResult(config, s.Logger)
 			if err != nil {
 				s.Logger.Printf("ERROR: Account %s failed: %v", acc.UserId, err)
+				s.accountFailed(err.Error())
 				continue
 			}
 			s.Logger.Printf("SUCCESS: Account %s -> %s", acc.UserId, csvPath)
+			s.accountSuccess()
 
 			// アカウント間で待機
 			if i < len(req.Accounts)-1 {
@@ -205,6 +258,55 @@ func (s *GRPCServer) ScrapeMultiple(ctx context.Context, req *pb.ScrapeMultipleR
 		SuccessCount: 0,
 		TotalCount:   int32(len(req.Accounts)),
 	}, nil
+}
+
+// Job state management methods
+func (s *GRPCServer) startJob(totalAccounts int, sessionFolder string) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.isRunning = true
+	s.startedAt = time.Now()
+	s.totalAccounts = totalAccounts
+	s.completedAccounts = 0
+	s.successCount = 0
+	s.failCount = 0
+	s.currentAccount = ""
+	s.lastError = ""
+	s.lastSessionFolder = sessionFolder
+}
+
+func (s *GRPCServer) setCurrentAccount(account string) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	if len(account) > 4 {
+		s.currentAccount = account[:4] + "****"
+	} else {
+		s.currentAccount = account
+	}
+}
+
+func (s *GRPCServer) accountSuccess() {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.completedAccounts++
+	s.successCount++
+	s.currentAccount = ""
+}
+
+func (s *GRPCServer) accountFailed(errMsg string) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.completedAccounts++
+	s.failCount++
+	s.lastError = errMsg
+	s.currentAccount = ""
+}
+
+func (s *GRPCServer) finishJob() {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	s.isRunning = false
+	s.currentAccount = ""
 }
 
 // processETCAccountWithResult processes a single ETC account and returns the CSV path

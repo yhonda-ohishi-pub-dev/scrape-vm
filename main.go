@@ -585,8 +585,21 @@ func setupGRPCWebTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadP
 		func(ctx context.Context, req *pb.ScrapeMultipleRequest) (*pb.ScrapeMultipleResponse, error) {
 			logger.Printf("Received ScrapeMultiple request with %d accounts", len(req.Accounts))
 
+			// Create session folder
+			sessionFolder := filepath.Join(downloadPath, time.Now().Format("20060102_150405"))
+			if err := os.MkdirAll(sessionFolder, 0755); err != nil {
+				logger.Printf("Failed to create session folder: %v", err)
+				return &pb.ScrapeMultipleResponse{
+					SuccessCount: 0,
+					TotalCount:   int32(len(req.Accounts)),
+				}, nil
+			}
+
+			// Start job tracking BEFORE launching goroutine
+			jobState.StartJob(len(req.Accounts), sessionFolder)
+
 			// Run scraping in background
-			go runScrapeJobPb(logger, req.Accounts, downloadPath, headless)
+			go runScrapeJobPb(logger, req.Accounts, sessionFolder, headless)
 
 			return &pb.ScrapeMultipleResponse{
 				SuccessCount: 0,
@@ -779,15 +792,8 @@ func getDownloadedFiles(downloadPath string, logger *log.Logger) ([]map[string]i
 }
 
 // runScrapeJobPb runs scraping in background using Protobuf types
-func runScrapeJobPb(logger *log.Logger, accounts []*pb.Account, downloadPath string, headless bool) {
-	sessionFolder := filepath.Join(downloadPath, time.Now().Format("20060102_150405"))
-	if err := os.MkdirAll(sessionFolder, 0755); err != nil {
-		logger.Printf("Failed to create session folder: %v", err)
-		return
-	}
-
-	// Start job tracking
-	jobState.StartJob(len(accounts), sessionFolder)
+// Note: jobState.StartJob must be called before this function, and sessionFolder must already exist
+func runScrapeJobPb(logger *log.Logger, accounts []*pb.Account, sessionFolder string, headless bool) {
 	defer jobState.FinishJob()
 
 	for i, acc := range accounts {
