@@ -30,6 +30,7 @@ type Client struct {
 	logger            *log.Logger
 	handler           ClientEventHandler
 	dcReadyCallback   DataChannelReadyCallback
+	onDataChannel     DataChannelCallback
 	mu                sync.RWMutex
 	connected         bool
 	registered        bool
@@ -47,6 +48,7 @@ type ClientConfig struct {
 	Logger                *log.Logger
 	Handler               ClientEventHandler       // Optional event handler
 	OnDataChannelReady    DataChannelReadyCallback // Called when DataChannel is ready
+	OnDataChannel         DataChannelCallback      // Called for non-"data" labeled channels (e.g., "stream")
 	// Token refresh settings
 	RefreshToken     string // Refresh token for auto-refresh
 	ServerURL        string // Base URL for refresh endpoint (e.g., https://example.com)
@@ -66,6 +68,7 @@ func NewClient(config *ClientConfig) *Client {
 		logger:          logger,
 		handler:         config.Handler,
 		dcReadyCallback: config.OnDataChannelReady,
+		onDataChannel:   config.OnDataChannel,
 	}
 }
 
@@ -151,7 +154,12 @@ func (a *signalingEventAdapter) OnAppRegistered(payload AppRegisteredPayload) {
 }
 
 func (a *signalingEventAdapter) OnOffer(sdp string, requestID string) {
-	a.client.logger.Printf("Received offer from browser (requestID: %s)", requestID)
+	// requestID format: "req-{timestamp}-{counter}" for Unary, "stream-{timestamp}-{counter}" for Streaming
+	requestType := "unary"
+	if len(requestID) >= 6 && requestID[:6] == "stream" {
+		requestType = "streaming"
+	}
+	a.client.logger.Printf("Received offer from browser (requestID: %s, type: %s)", requestID, requestType)
 
 	a.client.mu.Lock()
 	peer := a.client.peer
