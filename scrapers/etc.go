@@ -173,6 +173,15 @@ func (s *ETCScraper) Login() error {
 func (s *ETCScraper) Download() (string, error) {
 	s.Logger.Println("Starting download process...")
 
+	// 既存のCSVファイルを記録（新しいファイルを検出するため）
+	existingFiles := make(map[string]bool)
+	if files, err := filepath.Glob(filepath.Join(s.DownloadPath, "*.csv")); err == nil {
+		for _, f := range files {
+			existingFiles[f] = true
+		}
+	}
+	s.Logger.Printf("Existing CSV files: %d", len(existingFiles))
+
 	s.Logger.Println("Navigating to search page...")
 	if err := chromedp.Run(s.Ctx,
 		chromedp.Evaluate(`
@@ -286,9 +295,12 @@ func (s *ETCScraper) Download() (string, error) {
 			if err != nil || info.IsDir() {
 				continue
 			}
-			// .csvファイルがあれば完了
+			// .csvファイルがあれば完了（ただし既存ファイルは除外）
 			if filepath.Ext(f) == ".csv" {
-				s.Logger.Printf("Found CSV file: %s", f)
+				if existingFiles[f] {
+					continue // 既存ファイルはスキップ
+				}
+				s.Logger.Printf("Found new CSV file: %s", f)
 				return f, nil
 			}
 			// 拡張子がないファイル（GUID形式）で十分なサイズがあれば完了
