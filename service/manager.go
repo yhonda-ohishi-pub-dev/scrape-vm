@@ -50,6 +50,12 @@ func NewManager(prg *Program) (*Manager, error) {
 func buildServiceArgs(prg *Program) []string {
 	var args []string
 
+	// Get executable directory for resolving relative paths
+	exeDir := ""
+	if exePath, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exePath)
+	}
+
 	// Use P2P mode by default for service
 	if prg.P2PMode {
 		args = append(args, "-p2p")
@@ -62,24 +68,20 @@ func buildServiceArgs(prg *Program) []string {
 		if prg.P2PAppName != "" {
 			args = append(args, "-p2p-name="+prg.P2PAppName)
 		}
-		// Use absolute path for credentials file
+		// Use absolute path for credentials file (relative to executable directory)
 		credsFile := prg.P2PCredsFile
-		if !filepath.IsAbs(credsFile) {
-			if absPath, err := filepath.Abs(credsFile); err == nil {
-				credsFile = absPath
-			}
+		if !filepath.IsAbs(credsFile) && exeDir != "" {
+			credsFile = filepath.Join(exeDir, credsFile)
 		}
 		args = append(args, "-p2p-creds="+credsFile)
 	} else {
 		args = append(args, "-grpc", "-port="+prg.GRPCPort)
 	}
 
-	// Use absolute path for download directory
+	// Use absolute path for download directory (relative to executable directory)
 	downloadPath := prg.DownloadPath
-	if !filepath.IsAbs(downloadPath) {
-		if absPath, err := filepath.Abs(downloadPath); err == nil {
-			downloadPath = absPath
-		}
+	if !filepath.IsAbs(downloadPath) && exeDir != "" {
+		downloadPath = filepath.Join(exeDir, downloadPath)
 	}
 	args = append(args, "-download="+downloadPath)
 
