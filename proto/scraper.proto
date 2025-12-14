@@ -58,6 +58,19 @@ message HealthRequest {}
 message HealthResponse {
   bool healthy = 1;
   string version = 2;
+  JobStatus current_job = 3;
+  string last_session_folder = 4;
+}
+
+message JobStatus {
+  bool is_running = 1;
+  string started_at = 2;           // ISO8601 format
+  int32 total_accounts = 3;
+  int32 completed_accounts = 4;
+  int32 success_count = 5;
+  int32 fail_count = 6;
+  string current_account = 7;      // 現在処理中のアカウント（マスク済み）
+  string last_error = 8;           // 最後のエラーメッセージ
 }
 
 message GetDownloadedFilesRequest {}

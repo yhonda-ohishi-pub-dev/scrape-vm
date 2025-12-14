@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,100 @@ import (
 	"github.com/scrape-vm/updater"
 	"google.golang.org/protobuf/proto"
 )
+
+// JobState tracks the current scraping job state
+type JobState struct {
+	mu                sync.RWMutex
+	IsRunning         bool
+	StartedAt         time.Time
+	TotalAccounts     int
+	CompletedAccounts int
+	SuccessCount      int
+	FailCount         int
+	CurrentAccount    string
+	LastError         string
+	LastSessionFolder string
+}
+
+// Global job state
+var jobState = &JobState{}
+
+// StartJob initializes a new job
+func (j *JobState) StartJob(totalAccounts int, sessionFolder string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.IsRunning = true
+	j.StartedAt = time.Now()
+	j.TotalAccounts = totalAccounts
+	j.CompletedAccounts = 0
+	j.SuccessCount = 0
+	j.FailCount = 0
+	j.CurrentAccount = ""
+	j.LastError = ""
+	j.LastSessionFolder = sessionFolder
+}
+
+// SetCurrentAccount sets the current account being processed
+func (j *JobState) SetCurrentAccount(account string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	// Mask the account ID for privacy (show only first 4 chars)
+	if len(account) > 4 {
+		j.CurrentAccount = account[:4] + "****"
+	} else {
+		j.CurrentAccount = account
+	}
+}
+
+// AccountSuccess increments success count
+func (j *JobState) AccountSuccess() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.CompletedAccounts++
+	j.SuccessCount++
+	j.CurrentAccount = ""
+}
+
+// AccountFailed increments fail count and records error
+func (j *JobState) AccountFailed(err string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.CompletedAccounts++
+	j.FailCount++
+	j.LastError = err
+	j.CurrentAccount = ""
+}
+
+// FinishJob marks the job as completed
+func (j *JobState) FinishJob() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.IsRunning = false
+	j.CurrentAccount = ""
+}
+
+// GetJobStatus returns a copy of current job status for HealthResponse
+func (j *JobState) GetJobStatus() *pb.JobStatus {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return &pb.JobStatus{
+		IsRunning:         j.IsRunning,
+		StartedAt:         j.StartedAt.Format(time.RFC3339),
+		TotalAccounts:     int32(j.TotalAccounts),
+		CompletedAccounts: int32(j.CompletedAccounts),
+		SuccessCount:      int32(j.SuccessCount),
+		FailCount:         int32(j.FailCount),
+		CurrentAccount:    j.CurrentAccount,
+		LastError:         j.LastError,
+	}
+}
+
+// GetLastSessionFolder returns the last session folder
+func (j *JobState) GetLastSessionFolder() string {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.LastSessionFolder
+}
 
 func main() {
 	// コマンドラインフラグ
@@ -464,8 +559,10 @@ func setupGRPCWebTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadP
 		},
 		func(ctx context.Context, req *pb.HealthRequest) (*pb.HealthResponse, error) {
 			return &pb.HealthResponse{
-				Healthy: true,
-				Version: server.Version,
+				Healthy:           true,
+				Version:           server.Version,
+				CurrentJob:        jobState.GetJobStatus(),
+				LastSessionFolder: jobState.GetLastSessionFolder(),
 			}, nil
 		},
 	))
@@ -686,9 +783,13 @@ func runScrapeJobPb(logger *log.Logger, accounts []*pb.Account, downloadPath str
 		return
 	}
 
-	successCount := 0
+	// Start job tracking
+	jobState.StartJob(len(accounts), sessionFolder)
+	defer jobState.FinishJob()
+
 	for i, acc := range accounts {
 		logger.Printf("Processing account %d/%d: %s", i+1, len(accounts), acc.UserId)
+		jobState.SetCurrentAccount(acc.UserId)
 
 		config := &scrapers.ScraperConfig{
 			UserID:       acc.UserId,
@@ -700,16 +801,17 @@ func runScrapeJobPb(logger *log.Logger, accounts []*pb.Account, downloadPath str
 
 		if err := processETCAccount(config, logger); err != nil {
 			logger.Printf("ERROR: %s: %v", acc.UserId, err)
+			jobState.AccountFailed(err.Error())
 			continue
 		}
-		successCount++
+		jobState.AccountSuccess()
 
 		if i < len(accounts)-1 {
 			time.Sleep(2 * time.Second)
 		}
 	}
 
-	logger.Printf("Scraping completed: %d/%d accounts succeeded", successCount, len(accounts))
+	logger.Printf("Scraping completed: %d/%d accounts succeeded", jobState.SuccessCount, len(accounts))
 }
 
 // getDownloadedFilesPb returns downloaded files using Protobuf types
