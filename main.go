@@ -515,8 +515,15 @@ func runP2PMode(logger *log.Logger, wsURL, apiKey, appName, downloadPath string,
 		Logger:       logger,
 		Handler:      handler,
 		OnDataChannelReady: func(dc *webrtc.DataChannel) {
-			logger.Println("DataChannel ready, setting up gRPC-Web transport...")
+			logger.Println("DataChannel 'data' ready, setting up gRPC-Web transport (Unary)...")
 			setupGRPCWebTransport(dc, logger, downloadPath, headless)
+		},
+		OnDataChannel: func(dc *webrtc.DataChannel) {
+			logger.Printf("DataChannel '%s' received", dc.Label())
+			if dc.Label() == "stream" {
+				logger.Println("Setting up gRPC-Web transport for streaming on 'stream' channel...")
+				setupStreamingTransport(dc, logger, downloadPath)
+			}
 		},
 	})
 
@@ -650,6 +657,33 @@ func setupGRPCWebTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadP
 	// Start the transport
 	transport.Start()
 	logger.Println("gRPC-Web transport started")
+}
+
+// setupStreamingTransport sets up gRPC-Web streaming handlers on the "stream" DataChannel
+func setupStreamingTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadPath string) {
+	transport := grpcweb.NewTransport(dc, nil)
+
+	// Register scraper.ETCScraper/StreamDownload handler (Server Streaming)
+	transport.RegisterStreamingHandler("/scraper.ETCScraper/StreamDownload",
+		grpcweb.MakeStreamingHandler(
+			func(data []byte) (*pb.StreamDownloadRequest, error) {
+				req := &pb.StreamDownloadRequest{}
+				if err := proto.Unmarshal(data, req); err != nil {
+					return nil, err
+				}
+				return req, nil
+			},
+			func(resp *pb.StreamDownloadChunk) ([]byte, error) {
+				return proto.Marshal(resp)
+			},
+			func(req *pb.StreamDownloadRequest, stream *grpcweb.TypedServerStream[*pb.StreamDownloadChunk]) error {
+				return streamDownloadFiles(req, stream, downloadPath, logger)
+			},
+		))
+
+	// Start the transport
+	transport.Start()
+	logger.Println("gRPC-Web streaming transport started on 'stream' channel")
 }
 
 // ScrapeRequest for gRPC-Web
