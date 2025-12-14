@@ -17,10 +17,12 @@ import (
 	svc "github.com/kardianos/service"
 	"github.com/pion/webrtc/v4"
 	"github.com/scrape-vm/p2p"
+	pb "github.com/scrape-vm/proto"
 	"github.com/scrape-vm/scrapers"
 	"github.com/scrape-vm/server"
 	myservice "github.com/scrape-vm/service"
 	"github.com/scrape-vm/updater"
+	"google.golang.org/protobuf/proto"
 )
 
 func main() {
@@ -448,60 +450,68 @@ func setupGRPCWebTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadP
 	// Register Server Reflection
 	grpcweb.RegisterReflection(transport)
 
-	// Register scraper.ETCScraper/Health handler
+	// Register scraper.ETCScraper/Health handler (Protobuf)
 	transport.RegisterHandler("/scraper.ETCScraper/Health", grpcweb.MakeHandler(
-		func(data []byte) (json.RawMessage, error) {
-			return data, nil
+		func(data []byte) (*pb.HealthRequest, error) {
+			req := &pb.HealthRequest{}
+			if err := proto.Unmarshal(data, req); err != nil {
+				return nil, err
+			}
+			return req, nil
 		},
-		func(resp map[string]interface{}) ([]byte, error) {
-			return json.Marshal(resp)
+		func(resp *pb.HealthResponse) ([]byte, error) {
+			return proto.Marshal(resp)
 		},
-		func(ctx context.Context, req json.RawMessage) (map[string]interface{}, error) {
-			return map[string]interface{}{
-				"status":  "ok",
-				"version": server.Version,
+		func(ctx context.Context, req *pb.HealthRequest) (*pb.HealthResponse, error) {
+			return &pb.HealthResponse{
+				Healthy: true,
+				Version: server.Version,
 			}, nil
 		},
 	))
 
-	// Register scraper.ETCScraper/ScrapeMultiple handler
+	// Register scraper.ETCScraper/ScrapeMultiple handler (Protobuf)
 	transport.RegisterHandler("/scraper.ETCScraper/ScrapeMultiple", grpcweb.MakeHandler(
-		func(data []byte) (*ScrapeRequest, error) {
-			var req ScrapeRequest
-			if err := json.Unmarshal(data, &req); err != nil {
+		func(data []byte) (*pb.ScrapeMultipleRequest, error) {
+			req := &pb.ScrapeMultipleRequest{}
+			if err := proto.Unmarshal(data, req); err != nil {
 				return nil, err
 			}
-			return &req, nil
+			return req, nil
 		},
-		func(resp *ScrapeResponse) ([]byte, error) {
-			return json.Marshal(resp)
+		func(resp *pb.ScrapeMultipleResponse) ([]byte, error) {
+			return proto.Marshal(resp)
 		},
-		func(ctx context.Context, req *ScrapeRequest) (*ScrapeResponse, error) {
+		func(ctx context.Context, req *pb.ScrapeMultipleRequest) (*pb.ScrapeMultipleResponse, error) {
 			logger.Printf("Received ScrapeMultiple request with %d accounts", len(req.Accounts))
 
 			// Run scraping in background
-			go runScrapeJob(logger, req.Accounts, downloadPath, headless)
+			go runScrapeJobPb(logger, req.Accounts, downloadPath, headless)
 
-			return &ScrapeResponse{
-				Message:      "Scraping started",
-				AccountCount: len(req.Accounts),
+			return &pb.ScrapeMultipleResponse{
+				SuccessCount: 0,
+				TotalCount:   int32(len(req.Accounts)),
 			}, nil
 		},
 	))
 
-	// Register scraper.ETCScraper/GetDownloadedFiles handler
+	// Register scraper.ETCScraper/GetDownloadedFiles handler (Protobuf)
 	transport.RegisterHandler("/scraper.ETCScraper/GetDownloadedFiles", grpcweb.MakeHandler(
-		func(data []byte) (json.RawMessage, error) {
-			return data, nil
+		func(data []byte) (*pb.GetDownloadedFilesRequest, error) {
+			req := &pb.GetDownloadedFilesRequest{}
+			if err := proto.Unmarshal(data, req); err != nil {
+				return nil, err
+			}
+			return req, nil
 		},
-		func(resp *FilesResponse) ([]byte, error) {
-			return json.Marshal(resp)
+		func(resp *pb.GetDownloadedFilesResponse) ([]byte, error) {
+			return proto.Marshal(resp)
 		},
-		func(ctx context.Context, req json.RawMessage) (*FilesResponse, error) {
-			files, sessionFolder := getDownloadedFiles(downloadPath, logger)
-			return &FilesResponse{
-				SessionFolder: sessionFolder,
+		func(ctx context.Context, req *pb.GetDownloadedFilesRequest) (*pb.GetDownloadedFilesResponse, error) {
+			files, sessionFolder := getDownloadedFilesPb(downloadPath, logger)
+			return &pb.GetDownloadedFilesResponse{
 				Files:         files,
+				SessionFolder: sessionFolder,
 			}, nil
 		},
 	))
@@ -662,6 +672,84 @@ func getDownloadedFiles(downloadPath string, logger *log.Logger) ([]map[string]i
 			"filename": f.Name(),
 			"content":  string(content),
 			"size":     len(content),
+		})
+	}
+
+	return result, latestFolder
+}
+
+// runScrapeJobPb runs scraping in background using Protobuf types
+func runScrapeJobPb(logger *log.Logger, accounts []*pb.Account, downloadPath string, headless bool) {
+	sessionFolder := filepath.Join(downloadPath, time.Now().Format("20060102_150405"))
+	if err := os.MkdirAll(sessionFolder, 0755); err != nil {
+		logger.Printf("Failed to create session folder: %v", err)
+		return
+	}
+
+	successCount := 0
+	for i, acc := range accounts {
+		logger.Printf("Processing account %d/%d: %s", i+1, len(accounts), acc.UserId)
+
+		config := &scrapers.ScraperConfig{
+			UserID:       acc.UserId,
+			Password:     acc.Password,
+			DownloadPath: sessionFolder,
+			Headless:     headless,
+			Timeout:      60 * time.Second,
+		}
+
+		if err := processETCAccount(config, logger); err != nil {
+			logger.Printf("ERROR: %s: %v", acc.UserId, err)
+			continue
+		}
+		successCount++
+
+		if i < len(accounts)-1 {
+			time.Sleep(2 * time.Second)
+		}
+	}
+
+	logger.Printf("Scraping completed: %d/%d accounts succeeded", successCount, len(accounts))
+}
+
+// getDownloadedFilesPb returns downloaded files using Protobuf types
+func getDownloadedFilesPb(downloadPath string, logger *log.Logger) ([]*pb.DownloadedFile, string) {
+	entries, err := os.ReadDir(downloadPath)
+	if err != nil {
+		return nil, ""
+	}
+
+	var latestFolder string
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].IsDir() {
+			latestFolder = entries[i].Name()
+			break
+		}
+	}
+
+	if latestFolder == "" {
+		return nil, ""
+	}
+
+	sessionPath := filepath.Join(downloadPath, latestFolder)
+	files, err := os.ReadDir(sessionPath)
+	if err != nil {
+		return nil, latestFolder
+	}
+
+	var result []*pb.DownloadedFile
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		filePath := filepath.Join(sessionPath, f.Name())
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		result = append(result, &pb.DownloadedFile{
+			Filename: f.Name(),
+			Content:  content,
 		})
 	}
 

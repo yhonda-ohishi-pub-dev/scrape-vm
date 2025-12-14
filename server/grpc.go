@@ -17,7 +17,7 @@ import (
 )
 
 // Version is the current server version (can be overridden at build time)
-var Version = "1.2.0"
+var Version = "1.2.1"
 
 // GRPCServer implements the gRPC service
 type GRPCServer struct {
