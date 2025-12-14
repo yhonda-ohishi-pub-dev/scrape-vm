@@ -29,3 +29,4 @@ p2p_credentials.env
 
 # Misc
 nul
+.claude/settings.local.json
