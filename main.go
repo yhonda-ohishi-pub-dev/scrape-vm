@@ -121,6 +121,9 @@ func (j *JobState) GetLastSessionFolder() string {
 }
 
 func main() {
+	// Set server.Version from build-time variable
+	server.Version = Version
+
 	// コマンドラインフラグ
 	accountsFlag := flag.String("accounts", "", "Accounts in format: user1:pass1,user2:pass2")
 	headless := flag.Bool("headless", true, "Run in headless mode")

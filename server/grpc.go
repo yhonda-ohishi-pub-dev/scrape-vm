@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-// Version is the current server version (can be overridden at build time)
-var Version = "1.2.1"
+// Version is set from main package at startup
+var Version = "dev"
 
 // GRPCServer implements the gRPC service
 type GRPCServer struct {
