@@ -638,9 +638,28 @@ func (p *Program) setupGRPCWebTransport(dc *webrtc.DataChannel) {
 		},
 	))
 
+	// Register scraper.ETCScraper/StreamDownload handler (Server Streaming) on 'data' channel too
+	// This allows clients to use the same transport for both unary and streaming calls
+	transport.RegisterStreamingHandler("/scraper.ETCScraper/StreamDownload",
+		grpcweb.MakeStreamingHandler(
+			func(data []byte) (*pb.StreamDownloadRequest, error) {
+				req := &pb.StreamDownloadRequest{}
+				if err := proto.Unmarshal(data, req); err != nil {
+					return nil, err
+				}
+				return req, nil
+			},
+			func(resp *pb.StreamDownloadChunk) ([]byte, error) {
+				return proto.Marshal(resp)
+			},
+			func(req *pb.StreamDownloadRequest, stream *grpcweb.TypedServerStream[*pb.StreamDownloadChunk]) error {
+				return p.streamDownloadFiles(req, stream)
+			},
+		))
+
 	// Start the transport
 	transport.Start()
-	p.Logger.Println("gRPC-Web transport started")
+	p.Logger.Println("gRPC-Web transport started (with streaming support)")
 }
 
 // setupStreamingTransport sets up gRPC-Web streaming handlers on the "stream" DataChannel
