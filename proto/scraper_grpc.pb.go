@@ -23,6 +23,7 @@ const (
 	ETCScraper_ScrapeMultiple_FullMethodName     = "/scraper.ETCScraper/ScrapeMultiple"
 	ETCScraper_Health_FullMethodName             = "/scraper.ETCScraper/Health"
 	ETCScraper_GetDownloadedFiles_FullMethodName = "/scraper.ETCScraper/GetDownloadedFiles"
+	ETCScraper_StreamDownload_FullMethodName     = "/scraper.ETCScraper/StreamDownload"
 )
 
 // ETCScraperClient is the client API for ETCScraper service.
@@ -37,6 +38,8 @@ type ETCScraperClient interface {
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
 	// ダウンロード済みファイルの取得
 	GetDownloadedFiles(ctx context.Context, in *GetDownloadedFilesRequest, opts ...grpc.CallOption) (*GetDownloadedFilesResponse, error)
+	// ファイルのストリーミングダウンロード
+	StreamDownload(ctx context.Context, in *StreamDownloadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamDownloadChunk], error)
 }
 
 type eTCScraperClient struct {
@@ -87,6 +90,25 @@ func (c *eTCScraperClient) GetDownloadedFiles(ctx context.Context, in *GetDownlo
 	return out, nil
 }
 
+func (c *eTCScraperClient) StreamDownload(ctx context.Context, in *StreamDownloadRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamDownloadChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ETCScraper_ServiceDesc.Streams[0], ETCScraper_StreamDownload_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamDownloadRequest, StreamDownloadChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ETCScraper_StreamDownloadClient = grpc.ServerStreamingClient[StreamDownloadChunk]
+
 // ETCScraperServer is the server API for ETCScraper service.
 // All implementations must embed UnimplementedETCScraperServer
 // for forward compatibility.
@@ -99,6 +121,8 @@ type ETCScraperServer interface {
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
 	// ダウンロード済みファイルの取得
 	GetDownloadedFiles(context.Context, *GetDownloadedFilesRequest) (*GetDownloadedFilesResponse, error)
+	// ファイルのストリーミングダウンロード
+	StreamDownload(*StreamDownloadRequest, grpc.ServerStreamingServer[StreamDownloadChunk]) error
 	mustEmbedUnimplementedETCScraperServer()
 }
 
@@ -120,6 +144,9 @@ func (UnimplementedETCScraperServer) Health(context.Context, *HealthRequest) (*H
 }
 func (UnimplementedETCScraperServer) GetDownloadedFiles(context.Context, *GetDownloadedFilesRequest) (*GetDownloadedFilesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDownloadedFiles not implemented")
+}
+func (UnimplementedETCScraperServer) StreamDownload(*StreamDownloadRequest, grpc.ServerStreamingServer[StreamDownloadChunk]) error {
+	return status.Error(codes.Unimplemented, "method StreamDownload not implemented")
 }
 func (UnimplementedETCScraperServer) mustEmbedUnimplementedETCScraperServer() {}
 func (UnimplementedETCScraperServer) testEmbeddedByValue()                    {}
@@ -214,6 +241,17 @@ func _ETCScraper_GetDownloadedFiles_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ETCScraper_StreamDownload_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamDownloadRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ETCScraperServer).StreamDownload(m, &grpc.GenericServerStream[StreamDownloadRequest, StreamDownloadChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ETCScraper_StreamDownloadServer = grpc.ServerStreamingServer[StreamDownloadChunk]
+
 // ETCScraper_ServiceDesc is the grpc.ServiceDesc for ETCScraper service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -238,6 +276,12 @@ var ETCScraper_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ETCScraper_GetDownloadedFiles_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamDownload",
+			Handler:       _ETCScraper_StreamDownload_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "proto/scraper.proto",
 }

@@ -717,6 +717,143 @@ func (x *GetDownloadedFilesResponse) GetSessionFolder() string {
 	return ""
 }
 
+// ストリーミングダウンロード用メッセージ
+type StreamDownloadRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionFolder string                 `protobuf:"bytes,1,opt,name=session_folder,json=sessionFolder,proto3" json:"session_folder,omitempty"` // 空の場合は最新セッション
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamDownloadRequest) Reset() {
+	*x = StreamDownloadRequest{}
+	mi := &file_proto_scraper_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamDownloadRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamDownloadRequest) ProtoMessage() {}
+
+func (x *StreamDownloadRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scraper_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamDownloadRequest.ProtoReflect.Descriptor instead.
+func (*StreamDownloadRequest) Descriptor() ([]byte, []int) {
+	return file_proto_scraper_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *StreamDownloadRequest) GetSessionFolder() string {
+	if x != nil {
+		return x.SessionFolder
+	}
+	return ""
+}
+
+type StreamDownloadChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`                             // ファイル名（最初のチャンクで設定）
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`                                     // ファイルデータのチャンク
+	Offset        int64                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`                                // ファイル内のオフセット
+	TotalSize     int64                  `protobuf:"varint,4,opt,name=total_size,json=totalSize,proto3" json:"total_size,omitempty"`         // ファイルの総サイズ
+	IsLastChunk   bool                   `protobuf:"varint,5,opt,name=is_last_chunk,json=isLastChunk,proto3" json:"is_last_chunk,omitempty"` // このファイルの最後のチャンクかどうか
+	FileIndex     int32                  `protobuf:"varint,6,opt,name=file_index,json=fileIndex,proto3" json:"file_index,omitempty"`         // 現在のファイルインデックス（0始まり）
+	TotalFiles    int32                  `protobuf:"varint,7,opt,name=total_files,json=totalFiles,proto3" json:"total_files,omitempty"`      // 総ファイル数
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamDownloadChunk) Reset() {
+	*x = StreamDownloadChunk{}
+	mi := &file_proto_scraper_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamDownloadChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamDownloadChunk) ProtoMessage() {}
+
+func (x *StreamDownloadChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_scraper_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamDownloadChunk.ProtoReflect.Descriptor instead.
+func (*StreamDownloadChunk) Descriptor() ([]byte, []int) {
+	return file_proto_scraper_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *StreamDownloadChunk) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *StreamDownloadChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *StreamDownloadChunk) GetOffset() int64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *StreamDownloadChunk) GetTotalSize() int64 {
+	if x != nil {
+		return x.TotalSize
+	}
+	return 0
+}
+
+func (x *StreamDownloadChunk) GetIsLastChunk() bool {
+	if x != nil {
+		return x.IsLastChunk
+	}
+	return false
+}
+
+func (x *StreamDownloadChunk) GetFileIndex() int32 {
+	if x != nil {
+		return x.FileIndex
+	}
+	return 0
+}
+
+func (x *StreamDownloadChunk) GetTotalFiles() int32 {
+	if x != nil {
+		return x.TotalFiles
+	}
+	return 0
+}
+
 var File_proto_scraper_proto protoreflect.FileDescriptor
 
 const file_proto_scraper_proto_rawDesc = "" +
@@ -774,13 +911,27 @@ const file_proto_scraper_proto_rawDesc = "" +
 	"\acontent\x18\x02 \x01(\fR\acontent\"r\n" +
 	"\x1aGetDownloadedFilesResponse\x12-\n" +
 	"\x05files\x18\x01 \x03(\v2\x17.scraper.DownloadedFileR\x05files\x12%\n" +
-	"\x0esession_folder\x18\x02 \x01(\tR\rsessionFolder2\xb4\x02\n" +
+	"\x0esession_folder\x18\x02 \x01(\tR\rsessionFolder\">\n" +
+	"\x15StreamDownloadRequest\x12%\n" +
+	"\x0esession_folder\x18\x01 \x01(\tR\rsessionFolder\"\xe0\x01\n" +
+	"\x13StreamDownloadChunk\x12\x1a\n" +
+	"\bfilename\x18\x01 \x01(\tR\bfilename\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x03R\x06offset\x12\x1d\n" +
+	"\n" +
+	"total_size\x18\x04 \x01(\x03R\ttotalSize\x12\"\n" +
+	"\ris_last_chunk\x18\x05 \x01(\bR\visLastChunk\x12\x1d\n" +
+	"\n" +
+	"file_index\x18\x06 \x01(\x05R\tfileIndex\x12\x1f\n" +
+	"\vtotal_files\x18\a \x01(\x05R\n" +
+	"totalFiles2\x86\x03\n" +
 	"\n" +
 	"ETCScraper\x129\n" +
 	"\x06Scrape\x12\x16.scraper.ScrapeRequest\x1a\x17.scraper.ScrapeResponse\x12Q\n" +
 	"\x0eScrapeMultiple\x12\x1e.scraper.ScrapeMultipleRequest\x1a\x1f.scraper.ScrapeMultipleResponse\x129\n" +
 	"\x06Health\x12\x16.scraper.HealthRequest\x1a\x17.scraper.HealthResponse\x12]\n" +
-	"\x12GetDownloadedFiles\x12\".scraper.GetDownloadedFilesRequest\x1a#.scraper.GetDownloadedFilesResponseB\x1cZ\x1agithub.com/scrape-vm/protob\x06proto3"
+	"\x12GetDownloadedFiles\x12\".scraper.GetDownloadedFilesRequest\x1a#.scraper.GetDownloadedFilesResponse\x12P\n" +
+	"\x0eStreamDownload\x12\x1e.scraper.StreamDownloadRequest\x1a\x1c.scraper.StreamDownloadChunk0\x01B\x1cZ\x1agithub.com/scrape-vm/protob\x06proto3"
 
 var (
 	file_proto_scraper_proto_rawDescOnce sync.Once
@@ -794,7 +945,7 @@ func file_proto_scraper_proto_rawDescGZIP() []byte {
 	return file_proto_scraper_proto_rawDescData
 }
 
-var file_proto_scraper_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_proto_scraper_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_proto_scraper_proto_goTypes = []any{
 	(*ScrapeRequest)(nil),              // 0: scraper.ScrapeRequest
 	(*ScrapeResponse)(nil),             // 1: scraper.ScrapeResponse
@@ -808,6 +959,8 @@ var file_proto_scraper_proto_goTypes = []any{
 	(*GetDownloadedFilesRequest)(nil),  // 9: scraper.GetDownloadedFilesRequest
 	(*DownloadedFile)(nil),             // 10: scraper.DownloadedFile
 	(*GetDownloadedFilesResponse)(nil), // 11: scraper.GetDownloadedFilesResponse
+	(*StreamDownloadRequest)(nil),      // 12: scraper.StreamDownloadRequest
+	(*StreamDownloadChunk)(nil),        // 13: scraper.StreamDownloadChunk
 }
 var file_proto_scraper_proto_depIdxs = []int32{
 	3,  // 0: scraper.ScrapeMultipleRequest.accounts:type_name -> scraper.Account
@@ -818,12 +971,14 @@ var file_proto_scraper_proto_depIdxs = []int32{
 	2,  // 5: scraper.ETCScraper.ScrapeMultiple:input_type -> scraper.ScrapeMultipleRequest
 	6,  // 6: scraper.ETCScraper.Health:input_type -> scraper.HealthRequest
 	9,  // 7: scraper.ETCScraper.GetDownloadedFiles:input_type -> scraper.GetDownloadedFilesRequest
-	1,  // 8: scraper.ETCScraper.Scrape:output_type -> scraper.ScrapeResponse
-	4,  // 9: scraper.ETCScraper.ScrapeMultiple:output_type -> scraper.ScrapeMultipleResponse
-	7,  // 10: scraper.ETCScraper.Health:output_type -> scraper.HealthResponse
-	11, // 11: scraper.ETCScraper.GetDownloadedFiles:output_type -> scraper.GetDownloadedFilesResponse
-	8,  // [8:12] is the sub-list for method output_type
-	4,  // [4:8] is the sub-list for method input_type
+	12, // 8: scraper.ETCScraper.StreamDownload:input_type -> scraper.StreamDownloadRequest
+	1,  // 9: scraper.ETCScraper.Scrape:output_type -> scraper.ScrapeResponse
+	4,  // 10: scraper.ETCScraper.ScrapeMultiple:output_type -> scraper.ScrapeMultipleResponse
+	7,  // 11: scraper.ETCScraper.Health:output_type -> scraper.HealthResponse
+	11, // 12: scraper.ETCScraper.GetDownloadedFiles:output_type -> scraper.GetDownloadedFilesResponse
+	13, // 13: scraper.ETCScraper.StreamDownload:output_type -> scraper.StreamDownloadChunk
+	9,  // [9:14] is the sub-list for method output_type
+	4,  // [4:9] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -840,7 +995,7 @@ func file_proto_scraper_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_scraper_proto_rawDesc), len(file_proto_scraper_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

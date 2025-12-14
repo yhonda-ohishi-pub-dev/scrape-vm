@@ -16,6 +16,9 @@ service ETCScraper {
 
   // ダウンロード済みファイルの取得
   rpc GetDownloadedFiles(GetDownloadedFilesRequest) returns (GetDownloadedFilesResponse);
+
+  // ファイルのストリーミングダウンロード
+  rpc StreamDownload(StreamDownloadRequest) returns (stream StreamDownloadChunk);
 }
 
 message ScrapeRequest {
@@ -83,4 +86,19 @@ message DownloadedFile {
 message GetDownloadedFilesResponse {
   repeated DownloadedFile files = 1;
   string session_folder = 2;
+}
+
+// ストリーミングダウンロード用メッセージ
+message StreamDownloadRequest {
+  string session_folder = 1;  // 空の場合は最新セッション
+}
+
+message StreamDownloadChunk {
+  string filename = 1;        // ファイル名（最初のチャンクで設定）
+  bytes data = 2;             // ファイルデータのチャンク
+  int64 offset = 3;           // ファイル内のオフセット
+  int64 total_size = 4;       // ファイルの総サイズ
+  bool is_last_chunk = 5;     // このファイルの最後のチャンクかどうか
+  int32 file_index = 6;       // 現在のファイルインデックス（0始まり）
+  int32 total_files = 7;      // 総ファイル数
 }

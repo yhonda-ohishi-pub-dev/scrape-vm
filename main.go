@@ -629,6 +629,24 @@ func setupGRPCWebTransport(dc *webrtc.DataChannel, logger *log.Logger, downloadP
 		},
 	))
 
+	// Register scraper.ETCScraper/StreamDownload handler (Server Streaming)
+	transport.RegisterStreamingHandler("/scraper.ETCScraper/StreamDownload",
+		grpcweb.MakeStreamingHandler(
+			func(data []byte) (*pb.StreamDownloadRequest, error) {
+				req := &pb.StreamDownloadRequest{}
+				if err := proto.Unmarshal(data, req); err != nil {
+					return nil, err
+				}
+				return req, nil
+			},
+			func(resp *pb.StreamDownloadChunk) ([]byte, error) {
+				return proto.Marshal(resp)
+			},
+			func(req *pb.StreamDownloadRequest, stream *grpcweb.TypedServerStream[*pb.StreamDownloadChunk]) error {
+				return streamDownloadFiles(req, stream, downloadPath, logger)
+			},
+		))
+
 	// Start the transport
 	transport.Start()
 	logger.Println("gRPC-Web transport started")
@@ -865,4 +883,105 @@ func getDownloadedFilesPb(downloadPath string, logger *log.Logger) ([]*pb.Downlo
 	}
 
 	return result, latestFolder
+}
+
+// streamDownloadFiles streams files from the session folder to the client
+func streamDownloadFiles(req *pb.StreamDownloadRequest, stream *grpcweb.TypedServerStream[*pb.StreamDownloadChunk], downloadPath string, logger *log.Logger) error {
+	// Determine session folder
+	sessionFolder := req.SessionFolder
+	if sessionFolder == "" {
+		// Find latest session folder
+		entries, err := os.ReadDir(downloadPath)
+		if err != nil {
+			return fmt.Errorf("failed to read download path: %w", err)
+		}
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].IsDir() {
+				sessionFolder = entries[i].Name()
+				break
+			}
+		}
+		if sessionFolder == "" {
+			return fmt.Errorf("no session folder found")
+		}
+	}
+
+	sessionPath := filepath.Join(downloadPath, sessionFolder)
+	files, err := os.ReadDir(sessionPath)
+	if err != nil {
+		return fmt.Errorf("failed to read session folder: %w", err)
+	}
+
+	// Filter out directories
+	var fileList []os.DirEntry
+	for _, f := range files {
+		if !f.IsDir() {
+			fileList = append(fileList, f)
+		}
+	}
+
+	totalFiles := len(fileList)
+	if totalFiles == 0 {
+		return fmt.Errorf("no files in session folder")
+	}
+
+	logger.Printf("StreamDownload: streaming %d files from %s", totalFiles, sessionFolder)
+
+	// Chunk size: 64KB (WebRTC DataChannel friendly)
+	const chunkSize = 64 * 1024
+
+	for fileIndex, f := range fileList {
+		filePath := filepath.Join(sessionPath, f.Name())
+		fileInfo, err := f.Info()
+		if err != nil {
+			logger.Printf("StreamDownload: failed to get file info for %s: %v", f.Name(), err)
+			continue
+		}
+
+		totalSize := fileInfo.Size()
+		logger.Printf("StreamDownload: streaming file %d/%d: %s (%d bytes)", fileIndex+1, totalFiles, f.Name(), totalSize)
+
+		// Open file for reading
+		file, err := os.Open(filePath)
+		if err != nil {
+			logger.Printf("StreamDownload: failed to open file %s: %v", f.Name(), err)
+			continue
+		}
+
+		var offset int64 = 0
+		buffer := make([]byte, chunkSize)
+
+		for {
+			n, readErr := file.Read(buffer)
+			if n > 0 {
+				isLastChunk := readErr != nil || offset+int64(n) >= totalSize
+
+				chunk := &pb.StreamDownloadChunk{
+					Filename:    f.Name(),
+					Data:        buffer[:n],
+					Offset:      offset,
+					TotalSize:   totalSize,
+					IsLastChunk: isLastChunk,
+					FileIndex:   int32(fileIndex),
+					TotalFiles:  int32(totalFiles),
+				}
+
+				if err := stream.Send(chunk); err != nil {
+					file.Close()
+					return fmt.Errorf("failed to send chunk: %w", err)
+				}
+
+				offset += int64(n)
+			}
+
+			if readErr != nil {
+				break
+			}
+		}
+
+		file.Close()
+	}
+
+	logger.Printf("StreamDownload: completed streaming %d files", totalFiles)
+	return nil
 }
