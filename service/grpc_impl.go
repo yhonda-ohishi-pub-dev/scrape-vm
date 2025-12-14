@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 	"github.com/scrape-vm/scrapers"
 
 	pb "github.com/scrape-vm/proto"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // GRPCServerImpl implements the gRPC service for use within the Windows service
@@ -168,6 +172,115 @@ func (s *GRPCServerImpl) ScrapeMultiple(ctx context.Context, req *pb.ScrapeMulti
 		SuccessCount: 0,
 		TotalCount:   int32(len(req.Accounts)),
 	}, nil
+}
+
+// StreamDownload implements the StreamDownload RPC for streaming file downloads
+func (s *GRPCServerImpl) StreamDownload(req *pb.StreamDownloadRequest, stream grpc.ServerStreamingServer[pb.StreamDownloadChunk]) error {
+	s.Logger.Println("StreamDownload requested")
+
+	// セッションフォルダを決定
+	sessionFolder := req.GetSessionFolder()
+	if sessionFolder == "" {
+		// 最新のセッションフォルダを使用
+		entries, err := os.ReadDir(s.DownloadPath)
+		if err != nil {
+			return status.Errorf(codes.NotFound, "failed to read download path: %v", err)
+		}
+
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].IsDir() {
+				sessionFolder = filepath.Join(s.DownloadPath, entries[i].Name())
+				break
+			}
+		}
+
+		if sessionFolder == "" {
+			return status.Error(codes.NotFound, "no session folder found")
+		}
+	}
+
+	s.Logger.Printf("Streaming files from: %s", sessionFolder)
+
+	// フォルダ内のファイル一覧を取得
+	files, err := os.ReadDir(sessionFolder)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "session folder not found: %v", err)
+	}
+
+	// ファイル以外を除外してカウント
+	var fileList []os.DirEntry
+	for _, f := range files {
+		if !f.IsDir() {
+			fileList = append(fileList, f)
+		}
+	}
+
+	totalFiles := int32(len(fileList))
+	if totalFiles == 0 {
+		s.Logger.Println("No files found in session folder")
+		return nil
+	}
+
+	const chunkSize = 64 * 1024 // 64KB chunks
+
+	for fileIndex, file := range fileList {
+		filePath := filepath.Join(sessionFolder, file.Name())
+		fileInfo, err := file.Info()
+		if err != nil {
+			s.Logger.Printf("Warning: could not get file info for %s: %v", file.Name(), err)
+			continue
+		}
+
+		totalSize := fileInfo.Size()
+		s.Logger.Printf("Streaming file %d/%d: %s (%d bytes)", fileIndex+1, totalFiles, file.Name(), totalSize)
+
+		f, err := os.Open(filePath)
+		if err != nil {
+			s.Logger.Printf("Warning: could not open file %s: %v", file.Name(), err)
+			continue
+		}
+
+		buf := make([]byte, chunkSize)
+		var offset int64 = 0
+
+		for {
+			n, err := f.Read(buf)
+			if n > 0 {
+				isLastChunk := err == io.EOF || offset+int64(n) >= totalSize
+
+				chunk := &pb.StreamDownloadChunk{
+					Filename:    file.Name(),
+					Data:        buf[:n],
+					Offset:      offset,
+					TotalSize:   totalSize,
+					IsLastChunk: isLastChunk,
+					FileIndex:   int32(fileIndex),
+					TotalFiles:  totalFiles,
+				}
+
+				if sendErr := stream.Send(chunk); sendErr != nil {
+					f.Close()
+					return status.Errorf(codes.Internal, "failed to send chunk: %v", sendErr)
+				}
+
+				offset += int64(n)
+			}
+
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				f.Close()
+				return status.Errorf(codes.Internal, "failed to read file %s: %v", file.Name(), err)
+			}
+		}
+
+		f.Close()
+		s.Logger.Printf("Completed streaming file: %s", file.Name())
+	}
+
+	s.Logger.Printf("StreamDownload completed: %d files sent", totalFiles)
+	return nil
 }
 
 // processETCAccountWithResult processes a single ETC account and returns the CSV path
