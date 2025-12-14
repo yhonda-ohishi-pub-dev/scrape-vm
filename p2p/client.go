@@ -289,6 +289,7 @@ func (c *Client) createPeerConnection() {
 		ICEServers:      iceServers,
 		SignalingClient: c.signaling,
 		Handler:         &dataChannelEventAdapter{client: c},
+		OnDataChannel:   c.onDataChannel,
 	})
 	if err != nil {
 		c.logger.Printf("Failed to create peer connection: %v", err)
